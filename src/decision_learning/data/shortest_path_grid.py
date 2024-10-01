@@ -305,53 +305,8 @@ def genData(num_data: int,
     return final_data                  
 
 
-def shortest_path_synthetic_data(num_data: int, 
-        num_features: int, 
-        grid: Tuple[int, int], 
-        deg: int=1, 
-        noise_type: str='unif',
-        noise_width: float=0, 
-        seed: int=135):
-    """Function to generate the synthetic grid patterned shortest path experiment originally from
-    Smart “Predict, then Optimize” paper (https://arxiv.org/pdf/1710.08005)
-    and also used in:
-    * PyEPO (https://arxiv.org/pdf/2206.14234)
-    * Decision-Focused Learning with Directional Gradients (https://arxiv.org/pdf/2402.03256)
-    
-    The grid experiment has:
-    * underlying grid network that is grid[0]-by-grid[1] where each element of grid is node
-    * edges go only from left to right (west to east) and from top to bottom (north to south)
-    * goal is to find the shortest path from the top-left node to the bottom-right node
-    
-    The synthetic data generation has:
-    1. feature vectors of shape (num_data, num_features) and each feature is drawn from N(0, 1)
-    2. cost vectors (each element of cost vector corresponds to an edge in the grid network) of shape (num_data, num_edges)
-        - cost of each edge is generated as a polynomial of the dot product of the feature vector and a random matrix B
-          (see original paper section 6.1 https://arxiv.org/pdf/1710.08005)
-    
-    Args:
-        num_data (int): number of data samples in experiment
-        num_features (int): dimension of features
-        grid (Tuple[int, int]): specifies grid network size is grid[0]-by-grid[1] many nodes        
-        deg (int): deg specifies the degree of the polynomial used in the 
-            polynomial of the dot product of feature vector and random matrix B
-            used to generate the cost vector. When using linear prediction model,
-            higher deg corresponds to more misspecification of prediction model.
-        noise_type (str): type of noise added to cost vector.
-        noise_width (float): degree of noise added to cost vector
-        seed (int): random seed for reproducibility
-
-    Returns:
-       dict: dictionary containing feature vectors, true cost vectors, and noisy cost vectors
-    """
-    pass
-
-    
-
-
-
 # ---------------------------------------------------------------------------------------------------------------------------------------
-# Original Functions
+# original function refactored
 # ---------------------------------------------------------------------------------------------------------------------------------------
 def genDataPlant(num_data, num_features, grid, ep_type, deg=1, noise_width=0, seed=135):
     """Function to generate a synthetic shortest
