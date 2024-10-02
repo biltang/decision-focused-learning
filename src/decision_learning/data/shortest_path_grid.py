@@ -265,14 +265,38 @@ def genData(num_data: int,
         planted_bad_edges: list=None,
         planted_good_pwl_params: dict=None,
         planted_bad_pwl_params: dict=None):
-    
-    # contents of data =  {'x': x, 'c': c}
+    """Orchestration function to generate synthetic shortest path data:
+    1. Generate synthetic shortest path data with no noise - costs and features
+    2. If plant_edges == True, plant good and bad paths in the cost vectors
+    3. Add noise to cost vectors
+
+    Args:
+        num_data (int): number of data samples in experiment
+        num_features (int): dimension of features
+        grid (Tuple[int, int]): specifies grid network size is grid[0]-by-grid[1] many nodes        
+        deg (int): deg specifies the degree of the polynomial used in the 
+            polynomial of the dot product of feature vector and random matrix B
+            used to generate the cost vector. When using linear prediction model,
+            higher deg corresponds to more misspecification of prediction model.
+        noise_type (str): type of noise added to cost vector. Defaults to 'unif'.
+        noise_width (float): degree of noise added to cost vector. Defaults to 0.
+        seed (int): random seed for reproducibility. Defaults to 135.        
+        plant_edges (bool, optional): to plant edges or not. Defaults to True.
+        planted_good_edges (list): list of good edges to plant
+        planted_bad_edges (list): list of bad edges to plant
+        planted_good_pwl_params (dict): dictionary of parameters {'slope0', 'int0', 'slope1', 'int1'} for good edges input to piecewise_linear
+        planted_bad_pwl_params (dict): dictionary of parameters {'slope0', 'int0', 'slope1', 'int1'} for bad edges input to piecewise_linear
+    Returns:
+        dict: dictionary containing feature vectors, true cost vectors, noisy cost vectors, and noise vectors
+    """
+    # 1. contents of data =  {'x': x, 'c': c}
     data = shortest_path_synthetic_sym_no_noise(num_data=num_data,
         num_features=num_features, 
         grid=grid, 
         deg=deg, 
         seed=seed)
     
+    # 2. plant edges
     if plant_edges:
         # contents of data_plant =  {'x_plant': x_plant, 'c_plant': c}    
         data_plant = shortest_path_synthetic_plant_path(x=data['x'],
@@ -290,7 +314,7 @@ def genData(num_data: int,
         # and plant_edges == False. This way easier to maintain code, have less if else statements branching
         data['c_plant'] = data['c']
         
-    # contents of data_noise = {'cost_noise': c_hat, 'noise': epsilon}
+    # 3. add noise to cost vectors - contents of data_noise = {'cost_noise': c_hat, 'noise': epsilon}
     data_noise = add_noise(c=data['c_plant'],
             noise_type=noise_type,
             noise_width=noise_width,
