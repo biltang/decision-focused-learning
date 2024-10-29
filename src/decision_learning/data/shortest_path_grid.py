@@ -322,9 +322,9 @@ def genData(num_data: int,
     
     # aggregate data    
     final_data = {'feat': data['x'],
-                  'cost_noplant': data['c'],
-                  'cost_true': data['c_plant'],
-                  'cost': data_noise['cost_noise'],
+                  'cost_noplant': data['c'], # cost vectors with no planted good and bad paths, no noise
+                  'cost_true': data['c_plant'], # cost vectors with planted good and bad paths, no noise
+                  'cost': data_noise['cost_noise'], # cost vectors with planted good and bad paths, with noise
                   'epsilon': data_noise['noise']}
     return final_data                  
 
