@@ -63,6 +63,7 @@ class MLP(nn.Module):
 # ------------------------------------------------------------------------------
 # OPTMIZATION MODELS
 # ------------------------------------------------------------------------------
+# PROBABLY NOT NEEDED
 class OptModel(ABC):
     """Abstract base class for optimization models used as input into decision-focused loss functions to ensure
     that all optimization models have the same interface. They must implement the functions:

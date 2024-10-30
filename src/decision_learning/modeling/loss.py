@@ -101,9 +101,11 @@ class SPOPlus(nn.Module):
     Reference: <https://doi.org/10.1287/mnsc.2020.3922>
     """
 
-    def __init__(self, reduction: str = "mean", minimize: bool = True):
+    def __init__(self, optmodel: callable, reduction: str = "mean", minimize: bool = True):
         """
         Args:
+            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
+                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
             reduction (str): the reduction to apply to the output
             minimize (bool): whether the optimization problem is minimization or maximization                    
         """
@@ -111,11 +113,10 @@ class SPOPlus(nn.Module):
         self.spop = SPOPlusFunc()
         self.reduction = reduction
         self.minimize = minimize
+        self.optmodel = optmodel
 
     def forward(self, 
-            pred_cost: torch.tensor, 
-            opt_prob_sol: torch.tensor,
-            opt_prob_obj: torch.tensor,
+            pred_cost: torch.tensor,             
             true_cost: torch.tensor, 
             true_sol: torch.tensor, 
             true_obj: torch.tensor):
@@ -123,14 +124,12 @@ class SPOPlus(nn.Module):
         Forward pass
         
         Args:            
-            pred_cost (torch.tensor): a batch of predicted values of the cost
-            opt_prob_sol (torch.tensor): a batch of optimal solutions with SPO specific objective
-            opt_prob_obj (torch.tensor): a batch of optimal objective values with SPO specific objective
+            pred_cost (torch.tensor): a batch of predicted values of the cost            
             true_cost (torch.tensor): a batch of true values of the cost
             true_sol (torch.tensor): a batch of true optimal solutions
             true_obj (torch.tensor): a batch of true optimal objective values            
-        """
-        loss = self.spop.apply(pred_cost, opt_prob_sol, opt_prob_obj, true_cost, true_sol, true_obj, self.minimize)
+        """        
+        loss = self.spop.apply(pred_cost, true_cost, true_sol, true_obj, self.optmodel, self.minimize)
         
         # reduction
         if self.reduction == "mean":
@@ -152,23 +151,22 @@ class SPOPlusFunc(Function):
     @staticmethod
     def forward(ctx, 
             pred_cost: torch.tensor, 
-            opt_prob_sol: torch.tensor,
-            opt_prob_obj: torch.tensor,
             true_cost: torch.tensor, 
             true_sol: torch.tensor, 
             true_obj: torch.tensor,
+            optmodel: callable,
             minimize: bool = True):
         """
         Forward pass for SPO+
 
         Args:
             ctx: Context object to store information for backward computation
-            pred_cost (torch.tensor): a batch of predicted values of the cost
-            opt_prob_sol (torch.tensor): a batch of optimal solutions with SPO specific objective
-            opt_prob_obj (torch.tensor): a batch of optimal objective values with SPO specific objective
+            pred_cost (torch.tensor): a batch of predicted values of the cost            
             true_cost (torch.tensor): a batch of true values of the cost
             true_sol (torch.tensor): a batch of true optimal solutions
             true_obj (torch.tensor): a batch of true optimal objective values
+            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
+                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
             minimize (bool): whether the optimization problem is minimization or maximization
 
         Returns:
@@ -176,9 +174,12 @@ class SPOPlusFunc(Function):
         """
         # rename variable names for convenience
         # c for cost, w for solution variables, z for obj values, and we use _hat for variables derived from predicted values
-        c_hat, w_hat, z_hat = pred_cost, opt_prob_sol, opt_prob_obj
+        c_hat = pred_cost
         c, w, z = true_cost, true_sol, true_obj
         
+        # get batch's current optimal solution value and objective vvalue based on the predicted cost
+        w_hat, z_hat = optmodel(2*c_hat - c)
+                        
         # calculate loss
         # SPO loss = - min_{w} (2 * c_hat - c)^T w + 2 * c_hat^T w - z = - z_hat + 2 * c_hat^T w - z
         loss = - z_hat + 2 * torch.sum(c_hat * w, axis = 1).reshape(-1,1) - z
@@ -206,6 +207,7 @@ class SPOPlusFunc(Function):
 #------------------------------------------------    
 # -Original - 
 from pyepo.func.abcmodule import optModule
+from pyepo import EPO
 
 class SPOPlus2_O(optModule):
     """
