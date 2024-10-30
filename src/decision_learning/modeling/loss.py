@@ -172,6 +172,7 @@ class SPOPlusFunc(Function):
         Returns:
             torch.tensor: SPO+ loss
         """
+        # TODO: add support for detach and convert to numpy since optmodel may not be written for torch tensors
         # rename variable names for convenience
         # c for cost, w for solution variables, z for obj values, and we use _hat for variables derived from predicted values
         c_hat = pred_cost
