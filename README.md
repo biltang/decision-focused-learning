@@ -5,7 +5,8 @@ conda activate (YOUR_ENVIRONMENT_NAME) # you can choose to skip this step for gl
 cd decision-focused-learning/src
 pip install -e .
 ```
-now you can import like the jupyter notebook example `decision-focused-learning/notebooks/shortest_path_example.ipynb`
+now you can import like the jupyter notebook example `decision-focused-learning/notebooks/shortest_path_example.ipynb` or
+`decision-focused-learning/notebooks/shortest_path_pipeline_example.ipynb`
 
 ```
 from decision_learning.data.shortest_path_grid import genData
