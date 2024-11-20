@@ -364,123 +364,146 @@ class PGLossFunc(Function):
 # -------------------------------------------------------------------------
 # TODO - refactor below loss
     
-class perturbedFenchelYoung(optModule):
+# class perturbedFenchelYoung(optModule):
+#     """
+#     An autograd module for Fenchel-Young loss using perturbation techniques. The
+#     use of the loss improves the algorithmic by the specific expression of the
+#     gradients of the loss.
+
+#     For the perturbed optimizer, the cost vector need to be predicted from
+#     contextual data and are perturbed with Gaussian noise.
+
+#     The Fenchel-Young loss allows to directly optimize a loss between the features
+#     and solutions with less computation. Thus, allows us to design an algorithm
+#     based on stochastic gradient descent.
+
+#     Reference: <https://papers.nips.cc/paper/2020/hash/6bb56208f672af0dd65451f869fedfd9-Abstract.html>
+#     """
+
+#     def __init__(self, optmodel, n_samples=10, sigma=1.0, processes=1,
+#                  seed=135, solve_ratio=1, reduction="mean", dataset=None):
+#         """
+#         Args:
+#             optmodel (optModel): an PyEPO optimization model
+#             n_samples (int): number of Monte-Carlo samples
+#             sigma (float): the amplitude of the perturbation
+#             processes (int): number of processors, 1 for single-core, 0 for all of cores
+#             seed (int): random state seed
+#             solve_ratio (float): the ratio of new solutions computed during training
+#             reduction (str): the reduction to apply to the output
+#             dataset (None/optDataset): the training data
+#         """
+#         super().__init__(optmodel, processes, solve_ratio, reduction, dataset)
+#         # number of samples
+#         self.n_samples = n_samples
+#         # perturbation amplitude
+#         self.sigma = sigma
+#         # random state
+#         self.rnd = np.random.RandomState(seed)
+#         # build optimizer
+#         self.pfy = perturbedFenchelYoungFunc()
+
+#     def forward(self, pred_cost, true_sol):
+#         """
+#         Forward pass
+#         """
+#         loss = self.pfy.apply(pred_cost, true_sol, self)
+#         # reduction
+#         if self.reduction == "mean":
+#             loss = torch.mean(loss)
+#         elif self.reduction == "sum":
+#             loss = torch.sum(loss)
+#         elif self.reduction == "none":
+#             loss = loss
+#         else:
+#             raise ValueError("No reduction '{}'.".format(self.reduction))
+#         return loss
+
+
+# class perturbedFenchelYoungFunc(Function):
+#     """
+#     A autograd function for Fenchel-Young loss using perturbation techniques.
+#     """
+
+#     @staticmethod
+#     def forward(ctx, pred_cost, true_sol, module):
+#         """
+#         Forward pass for perturbed Fenchel-Young loss
+
+#         Args:
+#             pred_cost (torch.tensor): a batch of predicted values of the cost
+#             true_sol (torch.tensor): a batch of true optimal solutions
+#             module (optModule): perturbedFenchelYoung module
+
+#         Returns:
+#             torch.tensor: solution expectations with perturbation
+#         """
+#         # get device
+#         device = pred_cost.device
+#         # convert tenstor
+#         cp = pred_cost.detach().to("cpu").numpy()
+#         w = true_sol.detach().to("cpu")
+#         # sample perturbations
+#         noises = module.rnd.normal(0, 1, size=(module.n_samples, *cp.shape))
+
+#         ptb_c = cp + module.sigma * noises
+#         ptb_c = ptb_c.reshape(-1, noises.shape[2])
+#         # solve with perturbation
+#         # ptb_sols, ptb_obj = _solve_or_cache(ptb_c, module)
+#         module.optmodel.setObj(ptb_c)
+#         ptb_sols, ptb_obj = module.optmodel.solve()
+
+#         ptb_sols = ptb_sols.reshape(module.n_samples, -1, ptb_sols.shape[1])
+#         # solution expectation
+#         e_sol = ptb_sols.mean(axis=0)
+
+#         # ptb_c = cp + module.sigma * noises
+#         # solve with perturbation
+#         # ptb_sols = _solve_or_cache(ptb_c, module)
+#         # solution expectation
+#         # e_sol = ptb_sols.mean(axis=1)
+#         # difference
+#         if module.optmodel.modelSense == EPO.MINIMIZE:
+#             diff = w - e_sol
+#         if module.optmodel.modelSense == EPO.MAXIMIZE:
+#             diff = e_sol - w
+#         # loss
+#         loss = torch.sum(diff**2, axis=1)
+#         # convert to tensor
+#         diff = torch.FloatTensor(diff).to(device)
+#         loss = torch.FloatTensor(loss).to(device)
+#         # save solutions
+#         ctx.save_for_backward(diff)
+#         return loss
+
+#     @staticmethod
+#     def backward(ctx, grad_output):
+#         """
+#         Backward pass for perturbed Fenchel-Young loss
+#         """
+#         grad, = ctx.saved_tensors
+#         grad_output = torch.unsqueeze(grad_output, dim=-1)
+#         return grad * grad_output, None, None
+
+# -------------------------------------------------------------------------
+# Existing Loss Function Mapping
+# -------------------------------------------------------------------------
+# Registry mapping names to functions
+LOSS_FUNCTIONS = {
+    'SPO+': SPOPlus, # SPO Plus Loss
+    'MSE': nn.MSELoss, # Mean Squared Error Loss
+    'PG': PG_Loss, # PG loss
+}
+
+def get_loss_function(name: str) -> callable:
+    """Utility function to get the loss function by name
+
+    Args:
+        name (str): name of the loss
+
+    Returns:
+        callable: loss function
     """
-    An autograd module for Fenchel-Young loss using perturbation techniques. The
-    use of the loss improves the algorithmic by the specific expression of the
-    gradients of the loss.
-
-    For the perturbed optimizer, the cost vector need to be predicted from
-    contextual data and are perturbed with Gaussian noise.
-
-    The Fenchel-Young loss allows to directly optimize a loss between the features
-    and solutions with less computation. Thus, allows us to design an algorithm
-    based on stochastic gradient descent.
-
-    Reference: <https://papers.nips.cc/paper/2020/hash/6bb56208f672af0dd65451f869fedfd9-Abstract.html>
-    """
-
-    def __init__(self, optmodel, n_samples=10, sigma=1.0, processes=1,
-                 seed=135, solve_ratio=1, reduction="mean", dataset=None):
-        """
-        Args:
-            optmodel (optModel): an PyEPO optimization model
-            n_samples (int): number of Monte-Carlo samples
-            sigma (float): the amplitude of the perturbation
-            processes (int): number of processors, 1 for single-core, 0 for all of cores
-            seed (int): random state seed
-            solve_ratio (float): the ratio of new solutions computed during training
-            reduction (str): the reduction to apply to the output
-            dataset (None/optDataset): the training data
-        """
-        super().__init__(optmodel, processes, solve_ratio, reduction, dataset)
-        # number of samples
-        self.n_samples = n_samples
-        # perturbation amplitude
-        self.sigma = sigma
-        # random state
-        self.rnd = np.random.RandomState(seed)
-        # build optimizer
-        self.pfy = perturbedFenchelYoungFunc()
-
-    def forward(self, pred_cost, true_sol):
-        """
-        Forward pass
-        """
-        loss = self.pfy.apply(pred_cost, true_sol, self)
-        # reduction
-        if self.reduction == "mean":
-            loss = torch.mean(loss)
-        elif self.reduction == "sum":
-            loss = torch.sum(loss)
-        elif self.reduction == "none":
-            loss = loss
-        else:
-            raise ValueError("No reduction '{}'.".format(self.reduction))
-        return loss
-
-
-class perturbedFenchelYoungFunc(Function):
-    """
-    A autograd function for Fenchel-Young loss using perturbation techniques.
-    """
-
-    @staticmethod
-    def forward(ctx, pred_cost, true_sol, module):
-        """
-        Forward pass for perturbed Fenchel-Young loss
-
-        Args:
-            pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_sol (torch.tensor): a batch of true optimal solutions
-            module (optModule): perturbedFenchelYoung module
-
-        Returns:
-            torch.tensor: solution expectations with perturbation
-        """
-        # get device
-        device = pred_cost.device
-        # convert tenstor
-        cp = pred_cost.detach().to("cpu").numpy()
-        w = true_sol.detach().to("cpu")
-        # sample perturbations
-        noises = module.rnd.normal(0, 1, size=(module.n_samples, *cp.shape))
-
-        ptb_c = cp + module.sigma * noises
-        ptb_c = ptb_c.reshape(-1, noises.shape[2])
-        # solve with perturbation
-        # ptb_sols, ptb_obj = _solve_or_cache(ptb_c, module)
-        module.optmodel.setObj(ptb_c)
-        ptb_sols, ptb_obj = module.optmodel.solve()
-
-        ptb_sols = ptb_sols.reshape(module.n_samples, -1, ptb_sols.shape[1])
-        # solution expectation
-        e_sol = ptb_sols.mean(axis=0)
-
-        # ptb_c = cp + module.sigma * noises
-        # solve with perturbation
-        # ptb_sols = _solve_or_cache(ptb_c, module)
-        # solution expectation
-        # e_sol = ptb_sols.mean(axis=1)
-        # difference
-        if module.optmodel.modelSense == EPO.MINIMIZE:
-            diff = w - e_sol
-        if module.optmodel.modelSense == EPO.MAXIMIZE:
-            diff = e_sol - w
-        # loss
-        loss = torch.sum(diff**2, axis=1)
-        # convert to tensor
-        diff = torch.FloatTensor(diff).to(device)
-        loss = torch.FloatTensor(loss).to(device)
-        # save solutions
-        ctx.save_for_backward(diff)
-        return loss
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        """
-        Backward pass for perturbed Fenchel-Young loss
-        """
-        grad, = ctx.saved_tensors
-        grad_output = torch.unsqueeze(grad_output, dim=-1)
-        return grad * grad_output, None, None
+    if name not in LOSS_FUNCTIONS:
+        raise ValueError(f"Loss function '{name}' not found. Available loss functions: {list(LOSS_FUNCTIONS.keys())}")
+    return LOSS_FUNCTIONS[name]

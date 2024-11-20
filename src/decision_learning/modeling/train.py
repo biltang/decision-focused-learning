@@ -10,6 +10,8 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 from decision_learning.modeling.val_metrics import decision_regret
+from decision_learning.utils import filter_kwargs
+
 
 # logging
 import logging
@@ -53,22 +55,6 @@ class GenericDataset(Dataset):
         return item
     
     
-def filter_kwargs(func: callable, kwargs: dict) -> dict:
-    """Filter out the valid arguments for a function from a dictionary of arguments. This is useful when you want to
-    pass a dictionary of arguments to a function, but only want to pass the valid arguments to the function. 
-
-    Args:
-        func (callable): function to filter arguments for
-        kwargs (dict): dictionary of arguments to filter
-
-    Returns:
-        dict: dictionary of valid arguments for the function
-    """
-    signature = inspect.signature(func) # get the signature of the function
-    valid_args = {key: value for key, value in kwargs.items() if key in signature.parameters} # filter out invalid args
-    return valid_args
-
-
 def init_loss_data_pretraining(data_dict: dict, 
                             dataloader_params: dict={'batch_size':32, 'shuffle':True}):
     """Wrapper function to convert user specified data_dict into a GenericDataset object and then into a DataLoader object.
@@ -95,6 +81,7 @@ def train(pred_model: nn.Module,
     loss_fn: nn.Module,
     train_data_dict: dict,
     val_data_dict: dict,
+    test_data_dict: dict=None,
     dataloader_params: dict={'batch_size':32, 'shuffle':True},
     val_metric: callable=decision_regret,
     device: str='cpu',
@@ -103,6 +90,7 @@ def train(pred_model: nn.Module,
     lr: float=1e-2,
     scheduler_params: dict={'step_size': 10, 'gamma': 0.1},
     minimization: bool=True):
+    # TODO: add possibility for test set for easy reporting
     """The components needed to train in a decision-aware/focused manner:
     1. prediction model - for predicting the coefficients/parameters of the optimization model [done]
     2. optimization model/solver - for downstream decision-making task  
@@ -203,6 +191,8 @@ def train(pred_model: nn.Module,
         # ------------------------- VALIDATION -------------------------
         # THIS SECTION SHOULD NOT NEED TO BE MODIFIED - CUSTOM BEHAVIOR SHOULD BE SPECIFIED IN THE val_metric FUNCTION
         pred_model.eval() # set model to evaluation mode
+            
+        # TODO: MODIFY VAL AND TEST REGRET CALC BEHAVIOR TO BE CONSISTENT
         
         # aggregate all predicted costs for entire validation set, then input into the val_metric function - assumption it all fits in memory
         all_preds = []
@@ -214,11 +204,17 @@ def train(pred_model: nn.Module,
                 # Append predictions to list
                 all_preds.append(pred)
         all_preds = torch.cat(all_preds, dim=0)
-        
+    
         val_data_dict = filter_kwargs(val_metric, val_data_dict) # filter out only valid arguments for the val metric
         # TODO: Do we need to detach val_data_dict and all_preds from cuda for general case of optmodel
         val_loss = val_metric(all_preds, **val_data_dict)
         
+        # Test regret       
+        test_regret = np.nan
+        if test_data_dict is not None:
+            test_regret = calc_test_regret(pred_model=pred_model,
+                                test_data_dict=test_data_dict,
+                                optmodel=optmodel)
         
         # ----------ADDITIONAL STEPS FOR OPTIMIZER/LOSS/MODEL ----------
         # MODIFY THIS SECTION IF YOU HAVE CUSTOM STEPS TO PERFORM EACH EPOCH LIKE SPECIAL PARAMETERS FOR THE LOSS FUNCTION
@@ -231,10 +227,11 @@ def train(pred_model: nn.Module,
         # MODIFY THIS SECTION IF YOU WANT TO LOG ADDITIONAL METRICS
         cur_metric = {'epoch': epoch, 
                     'train_loss': np.mean(epoch_losses), 
-                    'val_metric': val_loss}
+                    'val_metric': val_loss,
+                    'test_regret': test_regret}
         metrics.append(cur_metric)
         
-        logger.info(f'epoch: {epoch}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}')
+        logger.info(f'epoch: {epoch}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
 
         
     metrics = pd.DataFrame(metrics)

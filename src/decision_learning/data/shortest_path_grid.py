@@ -70,6 +70,7 @@ def shortest_path_synthetic_sym_no_noise(num_data: int,
         num_features: int, 
         grid: Tuple[int, int], 
         deg: int=1, 
+        rnd: np.random.RandomState=None,
         seed: int=135):
     """Function to generate the synthetic grid patterned shortest path experiment originally from
     Smart “Predict, then Optimize” paper (https://arxiv.org/pdf/1710.08005)
@@ -102,7 +103,8 @@ def shortest_path_synthetic_sym_no_noise(num_data: int,
        dict: dictionary containing feature vectors, true cost vectors, and noisy cost vectors
     """
     # set random seed
-    rnd = np.random.RandomState(seed)
+    if rnd is None:
+        rnd = np.random.RandomState(seed)
 
     # deg should be positive integer
     if type(deg) is not int:
@@ -119,10 +121,10 @@ def shortest_path_synthetic_sym_no_noise(num_data: int,
     n = num_data # number of data points
     p = num_features # dimension of features
     d = (grid[0] - 1) * grid[1] + (grid[1] - 1) * grid[0] # calculates number of edges in grid, which is also dimension of the cost vector    
-    rnd = np.random.RandomState(1)
-    B = rnd.binomial(1, 0.5, (d, p)) # random matrix of bernoulli(0.5) B of shape [d (number of edges), p (number of features)]     
-    rnd = np.random.RandomState(seed)
+    rnd_B = np.random.RandomState(1)
+    B = rnd_B.binomial(1, 0.5, (d, p)) # random matrix of bernoulli(0.5) B of shape [d (number of edges), p (number of features)]     
     x = rnd.normal(0, 1, (n, p)) # feature vectors of shape [n (number of samples), p (feature dimension)] drawn from N(0, 1)
+    x_plant = rnd.uniform(0, 2, (n, 1)) # feature value used for computing good and bad path edge costs
     
     """Generate (no noise) cost vectors c of shape [n (number of samples), d (number of edges)] 
     where c[i,j] is cost of edge j for experiment sample i. 
@@ -138,17 +140,16 @@ def shortest_path_synthetic_sym_no_noise(num_data: int,
     c = ((c / np.sqrt(p)) + 3)**deg + 1 # polynomial kernel of x dot product B with degree deg
     c = c/(3.5 ** deg) # rescaling implemented in PyEPO (not in original Smart “Predict, then Optimize” paper)
     
-    data = {'x': x, 'c': c}
+    data = {'x': x, 'x_plant': x_plant, 'c': c}
     return data
 
 
-def shortest_path_synthetic_plant_path(x: np.ndarray, 
+def shortest_path_synthetic_plant_path(x_plant: np.ndarray, 
                                     c: np.ndarray, 
                                     planted_good_edges: list=None, 
                                     planted_bad_edges: list=None,
                                     planted_good_pwl_params: dict=None,
-                                    planted_bad_pwl_params: dict=None,
-                                    seed: int=135):
+                                    planted_bad_pwl_params: dict=None):
     """
     Modifies the cost vectors c by planting good and bad paths in the cost vectors.
     
@@ -159,13 +160,10 @@ def shortest_path_synthetic_plant_path(x: np.ndarray,
         planted_bad_edges (list): list of bad edges to plant
         planted_good_pwl_params (dict): dictionary of parameters {'slope0', 'int0', 'slope1', 'int1'} for good edges input to piecewise_linear
         planted_bad_pwl_params (dict): dictionary of parameters {'slope0', 'int0', 'slope1', 'int1'} for bad edges input to piecewise_linear
-        seed (int): random seed for reproducibility
         
     Returns:
         dict: dictionary containing planted feature vectors and cost vectors
     """
-    # set random seed
-    rnd = np.random.RandomState(seed)
     
     """
     check if planted_good_edges and planted_bad_edges are properly passed in,
@@ -189,8 +187,6 @@ def shortest_path_synthetic_plant_path(x: np.ndarray,
     if planted_bad_pwl_params is None:
         planted_bad_pwl_params = {'slope0': 4, 'int0': 0, 'slope1': 0, 'int1': 2.2}
             
-    n = x.shape[0]
-    x_plant = rnd.uniform(0, 2, (n, 1)) # feature value used for computing good and bad path edge costs
     
     # bad paths
     c = c.copy()
@@ -215,6 +211,7 @@ def shortest_path_synthetic_plant_path(x: np.ndarray,
 def add_noise(c: np.ndarray,
         noise_type: str='unif',
         noise_width: float=0, 
+        rnd: np.random.RandomState=None,
         seed: int=135):
     """Function to add noise to cost vectors c
 
@@ -222,15 +219,16 @@ def add_noise(c: np.ndarray,
         c (np.ndarray): costs to add noise to
         noise_type (str): type of noise added to cost vector. Defaults to 'unif'.
         noise_width (float): degree of noise added to cost vector. Defaults to 0.
-        seed (int): random seed for reproducibility. Defaults to 135.        
+        rnd (np.random.RandomState): random state object for reproducibility 
+        seed (int): random seed for reproducibility. Defaults to 135.
 
     Returns:
         dict: dictionary containing noisy cost vectors and noise vectors
     """
-    
     # set random seed
-    rnd = np.random.RandomState(seed)
-    
+    if rnd is None:
+        rnd = np.random.RandomState(seed)
+        
     # instantiate noise functions
     # epsilon_gen_func contains the noise generation functions for uniform and normal noise
     epsilon_gen_func = {'unif': lambda x: rnd.uniform(low=1 - noise_width, 
@@ -289,23 +287,24 @@ def genData(num_data: int,
     Returns:
         dict: dictionary containing feature vectors, true cost vectors, noisy cost vectors, and noise vectors
     """
+    rnd = np.random.RandomState(seed) 
+    
     # 1. contents of data =  {'x': x, 'c': c}
     data = shortest_path_synthetic_sym_no_noise(num_data=num_data,
         num_features=num_features, 
         grid=grid, 
         deg=deg, 
-        seed=seed)
+        rnd=rnd)
     
     # 2. plant edges
     if plant_edges:
         # contents of data_plant =  {'x_plant': x_plant, 'c_plant': c}    
-        data_plant = shortest_path_synthetic_plant_path(x=data['x'],
+        data_plant = shortest_path_synthetic_plant_path(x_plant=data['x_plant'],
                                         c=data['c'],
                                         planted_good_edges=planted_good_edges, 
                                         planted_bad_edges=planted_bad_edges,
                                         planted_good_pwl_params=planted_good_pwl_params,
-                                        planted_bad_pwl_params=planted_bad_pwl_params,
-                                        seed=seed)
+                                        planted_bad_pwl_params=planted_bad_pwl_params)
         data['c_plant'] = data_plant['c_plant']
         data['x'] = np.concatenate((data['x'], data_plant['x_plant']), axis = 1) # combine feature data
         
@@ -314,11 +313,11 @@ def genData(num_data: int,
         # and plant_edges == False. This way easier to maintain code, have less if else statements branching
         data['c_plant'] = data['c']
         
-    # 3. add noise to cost vectors - contents of data_noise = {'cost_noise': c_hat, 'noise': epsilon}
+    # 3. add noise to cost vectors - contents of data_noise = {'cost_noise': c_hat, 'noise': epsilon}   
     data_noise = add_noise(c=data['c_plant'],
             noise_type=noise_type,
             noise_width=noise_width,
-            seed=seed)
+            rnd=rnd)
     
     # aggregate data    
     final_data = {'feat': data['x'],
