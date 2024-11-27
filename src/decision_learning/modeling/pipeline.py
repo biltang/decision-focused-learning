@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 from itertools import product
 import copy
 
@@ -23,18 +23,45 @@ if not any(isinstance(handler, logging.StreamHandler) for handler in logger.hand
     logger.addHandler(stream_handler)
     
     
-def lossfn_experiment_data_pipeline(X, true_cost, optmodel: callable):
+def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor], 
+                                true_cost: Union[np.ndarray, torch.tensor], 
+                                optmodel: callable):
+    """Wrapper function to preprocess data for experiments on loss functions implemented within the code base in decision_learning.modeling.loss
+    Since decision-aware/focused problems generally compare the optimal solution/obj under the true_cost vs the solution/obj under the predicted cost,
+    we precompute the optimal solution and objective under the true cost as "true_sol" and "true_obj". For flexibility reasons, the code base/train/pipeline/loss functions
+    expect data to be passed as dictionaries with key, value pairs where the key names match up to the input arguments into loss functions. 
     
-    sol, obj = optmodel(true_cost)
-    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj}
+    This function also wraps the data into a dictionary with the keys "X", "true_cost", "true_sol", "true_obj" for consistency across loss functions.
+    
+    Args:
+        X (Union[np.ndarray, torch.tensor]): features
+        true_cost (Union[np.ndarray, torch.tensor]): true cost
+        optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
+
+    Returns:
+        dict: dictionary with keys "X", "true_cost", "true_sol", "true_obj" for consistency across loss functions
+    """
+    
+    sol, obj = optmodel(true_cost) # get optimal solution and objective under true cost
+    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj} # wrap data into dictionary
     return final_data
 
 
 def existing_lossfn_data_preprocess(loss_name: str, data_dict: dict):
-    
+    """Each loss function implemented in decision_learning.modeling.loss may have specific inputs it expects beyond the generic "X", "true_cost", "true_sol", "true_obj" data.
+    This function is essentially a switch/lookup case to modify the data_dict to match the expected input arguments of the loss function. This is expected to be called before training
+    and only works for existing loss functions implemented in the code base.
+
+    Args:
+        loss_name (str): name of the loss function
+        data_dict (dict): dictionary with keys "X", "true_cost", "true_sol", "true_obj" for consistency across loss functions
+
+    Returns:
+        dict: modified data_dict with keys matching the expected input arguments of the loss function
+    """
     # simple check loss_name and modify data_dict accordingly to make sure inputs will be the argument names expected
     if loss_name == "MSE":
-        data_dict['target'] = data_dict['true_cost']
+        data_dict['target'] = data_dict['true_cost'] # nn.MSE takes target argument as the true label to be predicted, which is the true cost 
     
     return data_dict 
 
@@ -59,10 +86,10 @@ def lossfn_hyperparam_grid(hyperparams: dict[str, list]) -> list[dict]:
     return [dict(zip(param_names, combination)) for combination in combinations] 
 
 
-def lossfn_experiment_pipeline(X_train,
-            true_cost_train,
-            X_test,
-            true_cost_test, 
+def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor], 
+            true_cost_train: Union[np.ndarray, torch.tensor], 
+            X_test: Union[np.ndarray, torch.tensor],
+            true_cost_test: Union[np.ndarray, torch.tensor],
             predmodel: callable,
             optmodel: callable,
             val_split_params: dict={'test_size':0.2, 'random_state':42},
@@ -72,7 +99,57 @@ def lossfn_experiment_pipeline(X_train,
             minimize: bool=True,
             training_configs: dict=None,
             save_models: bool=False):
+    """High level function to run an experiment pipeline for decision-aware/focused learning.
+
+    Args:
+        X_train (Union[np.ndarray, torch.tensor]): training features
+        true_cost_train (Union[np.ndarray, torch.tensor]): training true cost
+        X_test (Union[np.ndarray, torch.tensor]): test features
+        true_cost_test (Union[np.ndarray, torch.tensor]): test true cost
+        predmodel (callable): pytorch prediction model
+        optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
+        val_split_params (dict, optional): how to split training data into train/val splits. Defaults to {'test_size':0.2, 'random_state':42}.
+        loss_names (List[str], optional): list of loss functions to run experiment pipeline on that are implemented already in the codebase in decision_learning.modeling.loss. Defaults to [].
         
+        loss_configs (dict, optional): dictionary mapping from loss_name (key) to a dictionary of different hyperparameters that are then grid searched over. 
+            Ex: {'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}}
+            The assumption is the hyperparameter grid generated per loss function would not be too big. Defaults to {}.
+        custom_loss_inputs (List[dict], optional): list of custom loss function configurations to run through the train function as part of experient pipeline. Because it is user custom,
+            user is expected to provide inputs in the form:
+            {'loss_name': name of the loss function, 
+            'loss': a callable loss function,
+            'data': dictionary with the proper argument names expected by the loss function}. 
+            Example:
+             [{'loss_name':'cosine',
+               'loss':nn.CosineEmbeddingLoss,
+               'data': {'X': generated_data['feat'],
+                        'input2':generated_data['cost'], 
+                        'target':torch.ones(generated_data['cost'].shape[0])}
+                       }
+            ].
+            Defaults to [].
+        minimize (bool, optional): minimization problem?. Defaults to True.
+        training_configs (dict, optional): parameters to be passed into train function for pytorch training loop. 
+            Example:
+            {
+                'dataloader_params': {'batch_size':32, 'shuffle':True},
+                'num_epochs': 10,
+                'lr': 0.01,
+                'scheduler_params': None
+            }. 
+            Defaults to None.        
+        save_models (bool, optional): flag to save models or not. If we are searching over many hyperparameters/loss function/models, 
+                                    may be impractical to store all of them since we may not be able to fit it in all in memory. 
+                                    However, this may be useful for storing select models in memory that can then be used as initialization points for other
+                                    loss function/model experiments. Defaults to False.
+
+    Raises:
+        ValueError: if no loss function is provided
+
+    Returns:
+        pd.DataFrame, dict: overall_metrics, trained_models
+    """
+    
     # default training configs
     # set up this way so that we have a default configuration for training, but can override it with user provided configs
     # dynamically thru dictionary update function, where now only user provided keys will be updated
@@ -150,7 +227,7 @@ def lossfn_experiment_pipeline(X_train,
             # TODO: allow for user initialization of prediciton model
             pred_model = copy.deepcopy(predmodel)
             
-            metrics, trained_model = train(pred_model=pred_model,
+            metrics, trained_model = train(pred_model=pred_model, # call train function
                 optmodel=optmodel,
                 loss_fn=cur_loss,
                 train_data_dict=train_dict,
@@ -163,7 +240,7 @@ def lossfn_experiment_pipeline(X_train,
             
             overall_metrics.append(metrics)
             
-            if save_models:                
+            if save_models: # if save_models, store trained_model under loss_name and hyperparameters                
                 trained_models[loss_n + "_" + str(orig_param_set)] = trained_model
             
     # -----------------TODO: CUSTOM LOSS FUNCTION: GET BY NAME PROVIDED IN custom_loss_inputs-----------------
@@ -187,7 +264,7 @@ def lossfn_experiment_pipeline(X_train,
         metrics['hyperparameters'] = None            
         overall_metrics.append(metrics)
         
-        if save_models:
+        if save_models: # if save_models, store trained_model under loss_name and hyperparameters
             trained_models[custom_loss_input['loss_name']] = trained_model
         
     overall_metrics = pd.concat(overall_metrics, ignore_index=True)

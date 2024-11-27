@@ -238,9 +238,33 @@ def train(pred_model: nn.Module,
     return metrics, pred_model
 
 
-def calc_test_regret(pred_model, test_data_dict, optmodel, minimize=True):
+def calc_test_regret(pred_model: nn.Module, 
+                     test_data_dict: dict, 
+                     optmodel: callable, 
+                     minimize: bool=True):
+    """Wrapper function to calculate regret of a given pred_model on a test set test_data_dict with optimization model optmodel.
+    Decision (normalized) regret is calculated by calling function decision_regret from decision_learning.modeling.val_metrics 
+    and is the difference between the cost of the predicted solution and the cost of the optimal solution.
+    We need to supply:
+        - pred: predicted costs of the test set based on features.
+        - true_cost: the true cost of the test set
+        - true_obj: the true objective value of the test set
+    Therefore, test_data_dict must contain 'X', 'true_cost', and 'true_obj' keys with the corresponding values. 
+    
+    The function also serves as a wrapper to handle pytorch model prediction with torch.no_grad() context manager and assumes the test_data_dict
+    and pred_model are small enough to fit in memory with only one batch.
+
+    Args:
+        pred_model (nn.Module): prediction model for predicting the coefficients/parameters of the optimization model
+        test_data_dict (dict): dictionary containing input data for the test set. It must contain 'X', 'true_cost', and 'true_obj' keys.
+        optmodel (callable): optimization model/solver for downstream decision-making task
+        minimize (bool, optional): whether the optimization task is a minimization task. Defaults to True.
+
+    Returns:
+        float: decision regret of the pred_model on the test set
+    """
     pred_model.eval()
-    with torch.no_grad():
+    with torch.no_grad(): # context manager to disable gradient calculation
         X = torch.tensor(test_data_dict['X'], dtype=torch.float32)
         pred = pred_model(X)
         regret = decision_regret(pred,
