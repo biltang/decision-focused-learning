@@ -60,29 +60,3 @@ class MLP(nn.Module):
         return self.network(x)
     
     
-# ------------------------------------------------------------------------------
-# OPTMIZATION MODELS
-# ------------------------------------------------------------------------------
-# PROBABLY NOT NEEDED
-class OptModel(ABC):
-    """Abstract base class for optimization models used as input into decision-focused loss functions to ensure
-    that all optimization models have the same interface. They must implement the functions:
-    - setObj: Set the optimization model's objective function.
-    - solve: Solve the optimization model and return the optimal solution.    
-    """
-    @abstractmethod
-    def __init__(self, modelSense: int=1):
-        self.modelSense = modelSense
-        
-    
-    @abstractmethod
-    def setObj(self, x):
-        raise NotImplementedError
-    
-    @abstractmethod
-    def solve(self):
-        raise NotImplementedError
-    
-    
-def optmodel_interface():
-    pass
