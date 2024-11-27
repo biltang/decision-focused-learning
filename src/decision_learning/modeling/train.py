@@ -230,7 +230,7 @@ def train(pred_model: nn.Module,
                     'val_metric': val_loss,
                     'test_regret': test_regret}
         metrics.append(cur_metric)
-        
+        # TODO: fix logging to find right level of detail to output and way for user to control the logging level
         #logger.info(f'epoch: {epoch}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
 
         

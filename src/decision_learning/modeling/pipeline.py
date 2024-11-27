@@ -136,7 +136,7 @@ def lossfn_experiment_pipeline(X_train,
             # filter out additional params that are not needed by the loss function
             param_set = filter_kwargs(func=cur_loss_fn.__init__, kwargs=param_set)
             #logger.debug(f"Filtered param set: {param_set} input into loss function {cur_loss_fn}")
-            
+            # TODO: fix logging to find right level of detail to output and way for user to control the logging level
             # instantiate the loss function
             cur_loss = cur_loss_fn(**param_set) # instantiate the loss function - optionally with configs if provided            
             
