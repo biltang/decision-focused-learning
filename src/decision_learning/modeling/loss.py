@@ -4,8 +4,6 @@ from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
 
-from decision_learning.modeling.models import OptModel
-
 
 # -------------------------------------------------------------------------
 # SPO Plus (Smart Predict and Optimize Plus) Loss
