@@ -164,7 +164,7 @@ def train(pred_model: nn.Module,
         # THIS SECTION SHOULD NOT NEED TO BE MODIFIED - CUSTOM BEHAVIOR SHOULD BE SPECIFIED IN THE loss_fn FUNCTION
         epoch_losses = []
         pred_model.train() # beginning of epoch, set model to training mode
-        for batch_idx, batch in enumerate(tqdm(train_loader)):
+        for batch_idx, batch in enumerate((train_loader)):
             
             # move data to appropriate device. Assume that the collate_fn function in the dataset object will return a
             # dictionary with 'X' as the key for the features and remaining keys for other data required for specific loss fn
@@ -197,7 +197,7 @@ def train(pred_model: nn.Module,
         # aggregate all predicted costs for entire validation set, then input into the val_metric function - assumption it all fits in memory
         all_preds = []
         with torch.no_grad():
-            for batch_idx, batch in enumerate(tqdm(val_loader)):
+            for batch_idx, batch in enumerate((val_loader)):
                 batch['X'] = batch['X'].to(device)                
                 pred = pred_model(batch['X'])
                 
@@ -231,7 +231,7 @@ def train(pred_model: nn.Module,
                     'test_regret': test_regret}
         metrics.append(cur_metric)
         
-        logger.info(f'epoch: {epoch}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
+        #logger.info(f'epoch: {epoch}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
 
         
     metrics = pd.DataFrame(metrics)

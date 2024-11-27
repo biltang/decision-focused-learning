@@ -70,7 +70,8 @@ def lossfn_experiment_pipeline(X_train,
             loss_configs: dict={}, 
             custom_loss_inputs: List[dict]=[],
             minimize: bool=True,
-            training_configs: dict=None):
+            training_configs: dict=None,
+            save_models: bool=False):
         
     # default training configs
     # set up this way so that we have a default configuration for training, but can override it with user provided configs
@@ -110,7 +111,7 @@ def lossfn_experiment_pipeline(X_train,
     
     # -----------------EXPERIMENT LOGGING SETUP----------------- 
     overall_metrics = []
-    
+    trained_models = {}
     # loop through list of existing loss functions
     for loss_n in loss_names: 
         cur_loss_fn = get_loss_function(loss_n)
@@ -119,7 +120,7 @@ def lossfn_experiment_pipeline(X_train,
         cur_loss_fn_hyperparam_grid = [{}] # by default, no hyperparameters, in which case, **{} is equivalent to using default values
         if loss_n in loss_configs:
             cur_loss_fn_hyperparam_grid = lossfn_hyperparam_grid(loss_configs[loss_n])
-        logger.debug(f"Loss name {loss_n}, function {cur_loss_fn}, and Loss function hyperparameters grid: {cur_loss_fn_hyperparam_grid}")
+        #logger.debug(f"Loss name {loss_n}, function {cur_loss_fn}, and Loss function hyperparameters grid: {cur_loss_fn_hyperparam_grid}")
         
         # loop over possible cur_loss_fn_hyperparam_grid, if none provided within loss_configs, 
         # then only one iteration, where we pass {} to the loss function, which results in default values
@@ -134,7 +135,7 @@ def lossfn_experiment_pipeline(X_train,
             
             # filter out additional params that are not needed by the loss function
             param_set = filter_kwargs(func=cur_loss_fn.__init__, kwargs=param_set)
-            logger.debug(f"Filtered param set: {param_set} input into loss function {cur_loss_fn}")
+            #logger.debug(f"Filtered param set: {param_set} input into loss function {cur_loss_fn}")
             
             # instantiate the loss function
             cur_loss = cur_loss_fn(**param_set) # instantiate the loss function - optionally with configs if provided            
@@ -162,6 +163,9 @@ def lossfn_experiment_pipeline(X_train,
             
             overall_metrics.append(metrics)
             
+            if save_models:                
+                trained_models[loss_n + "_" + str(orig_param_set)] = trained_model
+            
     # -----------------TODO: CUSTOM LOSS FUNCTION: GET BY NAME PROVIDED IN custom_loss_inputs-----------------
     # TODO: check if names match up with custom loss functions - raise Error otherwise
     for custom_loss_input in custom_loss_inputs:
@@ -183,5 +187,8 @@ def lossfn_experiment_pipeline(X_train,
         metrics['hyperparameters'] = None            
         overall_metrics.append(metrics)
         
+        if save_models:
+            trained_models[custom_loss_input['loss_name']] = trained_model
+        
     overall_metrics = pd.concat(overall_metrics, ignore_index=True)
-    return overall_metrics
+    return overall_metrics, trained_models
