@@ -353,7 +353,7 @@ class PGLossFunc(Function):
         # below, need to move (sol_plus - sol_minus) to the same device as grad_output since sol_plus and sol_minus
         # are on cpu and it is possible that grad_output is on a different device
         grad = step_size * (sol_plus - sol_minus).to(grad_output.device)
-        if ctx.minimize:
+        if not ctx.minimize: # maximization problem case
             grad = - grad
         
         return grad_output * grad, None, None, None, None, None, None
