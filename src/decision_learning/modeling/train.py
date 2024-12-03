@@ -15,8 +15,12 @@ from decision_learning.utils import filter_kwargs
 
 # logging
 import logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 logger = logging.getLogger(__name__)
+logger.propagate = False
+    
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 # Check if a stream handler already exists
 if not any(isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
     # Create a stream handler
@@ -42,7 +46,8 @@ class GenericDataset(Dataset):
         - kwargs: dictionary containing input data
         """
         # Store all kwargs as attributes and convert to torch.tensor
-        self.data = {key: torch.tensor(value, dtype=torch.float32) for key, value in kwargs.items()}
+        self.data = {key: torch.as_tensor(value, dtype=torch.float32) if not isinstance(value, torch.Tensor) else value
+                     for key, value in kwargs.items()}
         # Determine the length of the dataset from one of the arguments
         self.length = len(next(iter(kwargs.values())))
 
@@ -89,8 +94,8 @@ def train(pred_model: nn.Module,
     optimizer: torch.optim.Optimizer=None,
     lr: float=1e-2,
     scheduler_params: dict={'step_size': 10, 'gamma': 0.1},
-    minimization: bool=True):
-    # TODO: add possibility for test set for easy reporting
+    minimization: bool=True,
+    verbose: bool=True):    
     """The components needed to train in a decision-aware/focused manner:
     1. prediction model - for predicting the coefficients/parameters of the optimization model [done]
     2. optimization model/solver - for downstream decision-making task  
@@ -122,6 +127,7 @@ def train(pred_model: nn.Module,
         lr (float, optional): learning rate. Defaults to 1e-2.
         scheduler_params (dict, optional): parameters for the learning rate scheduler. Defaults to {'step_size': 10, 'gamma': 0.1}.
         minimization (bool, optional): whether the optimization task is a minimization task. Defaults to True.
+        verbose (bool, optional): whether to print training progress. Defaults to True.
     """
     # ------------------------- SETUP -------------------------
     # training setup - setup things needed for training loop like optimizer and scheduler
@@ -164,7 +170,7 @@ def train(pred_model: nn.Module,
         # THIS SECTION SHOULD NOT NEED TO BE MODIFIED - CUSTOM BEHAVIOR SHOULD BE SPECIFIED IN THE loss_fn FUNCTION
         epoch_losses = []
         pred_model.train() # beginning of epoch, set model to training mode
-        for batch_idx, batch in enumerate((train_loader)):
+        for batch_idx, batch in enumerate(tqdm(train_loader, disable=not verbose, desc=f'Training Loader: Epoch {epoch+1}/{num_epochs}')):
             
             # move data to appropriate device. Assume that the collate_fn function in the dataset object will return a
             # dictionary with 'X' as the key for the features and remaining keys for other data required for specific loss fn
@@ -197,7 +203,7 @@ def train(pred_model: nn.Module,
         # aggregate all predicted costs for entire validation set, then input into the val_metric function - assumption it all fits in memory
         all_preds = []
         with torch.no_grad():
-            for batch_idx, batch in enumerate((val_loader)):
+            for batch_idx, batch in enumerate(tqdm(val_loader, disable=not verbose, desc=f'Validation Loader: Epoch {epoch+1}/{num_epochs}')):
                 batch['X'] = batch['X'].to(device)                
                 pred = pred_model(batch['X'])
                 
@@ -230,8 +236,9 @@ def train(pred_model: nn.Module,
                     'val_metric': val_loss,
                     'test_regret': test_regret}
         metrics.append(cur_metric)
-        # TODO: fix logging to find right level of detail to output and way for user to control the logging level
-        #logger.info(f'epoch: {epoch}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
+        
+        if verbose:
+            logger.info(f'epoch: {epoch+1}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
 
         
     metrics = pd.DataFrame(metrics)

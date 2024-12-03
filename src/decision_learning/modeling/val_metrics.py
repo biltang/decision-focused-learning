@@ -23,10 +23,10 @@ def decision_regret(pred_cost: torch.tensor,
     w_hat, z_hat = optmodel(pred_cost)
     
     # To ensure consistency, convert everything into a pytorch tensor
-    w_hat = torch.tensor(w_hat, dtype=torch.float32)
-    z_hat = torch.tensor(z_hat, dtype=torch.float32)
-    true_cost = torch.tensor(true_cost, dtype=torch.float32)
-    true_obj = torch.tensor(true_obj, dtype=torch.float32)
+    w_hat = torch.as_tensor(w_hat, dtype=torch.float32)
+    z_hat = torch.as_tensor(z_hat, dtype=torch.float32)
+    true_cost = torch.as_tensor(true_cost, dtype=torch.float32)
+    true_obj = torch.as_tensor(true_obj, dtype=torch.float32)
     
     # objective value of pred_cost induced solution (w_hat) based on true cost
     obj_hat = (w_hat * true_cost).sum(axis=1, keepdim=True)

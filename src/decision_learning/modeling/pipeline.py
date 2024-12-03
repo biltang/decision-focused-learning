@@ -15,6 +15,7 @@ from decision_learning.modeling.train import train
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+logger.propagate = False
 # Check if a stream handler already exists
 if not any(isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
     # Create a stream handler
@@ -100,7 +101,8 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             custom_loss_inputs: List[dict]=[],
             minimize: bool=True,
             training_configs: dict=None,
-            save_models: bool=False):
+            save_models: bool=False,
+            training_loop_verbose: bool=False):
     """High level function to run an experiment pipeline for decision-aware/focused learning.
 
     Args:
@@ -144,6 +146,9 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
                                     may be impractical to store all of them since we may not be able to fit it in all in memory. 
                                     However, this may be useful for storing select models in memory that can then be used as initialization points for other
                                     loss function/model experiments. Defaults to False.
+        training_loop_verbose (bool, optional): flag to print out training loop progress, may want to set to False
+            when using in certain settings like Jupyter notebook over many experiments, since too much output can break
+            notebook UI, but should not be a problem to terminal console/or .log file output. Defaults to False.                                    
 
     Raises:
         ValueError: if no loss function is provided
@@ -192,18 +197,23 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
     overall_metrics = []
     trained_models = {}
     # loop through list of existing loss functions
-    for loss_n in loss_names: 
+    for loss_idx, loss_n in enumerate(loss_names): 
+        
+        logger.info(f"""Loss number {loss_idx+1}/{len(loss_names)}, on loss function {loss_n}""")            
+        
         cur_loss_fn = get_loss_function(loss_n)
         
         # loss function parameters
         cur_loss_fn_hyperparam_grid = [{}] # by default, no hyperparameters, in which case, **{} is equivalent to using default values
         if loss_n in loss_configs:
-            cur_loss_fn_hyperparam_grid = lossfn_hyperparam_grid(loss_configs[loss_n])
-        #logger.debug(f"Loss name {loss_n}, function {cur_loss_fn}, and Loss function hyperparameters grid: {cur_loss_fn_hyperparam_grid}")
+            cur_loss_fn_hyperparam_grid = lossfn_hyperparam_grid(loss_configs[loss_n])        
         
         # loop over possible cur_loss_fn_hyperparam_grid, if none provided within loss_configs, 
         # then only one iteration, where we pass {} to the loss function, which results in default values
-        for param_set in cur_loss_fn_hyperparam_grid:
+        for idx, param_set in enumerate(cur_loss_fn_hyperparam_grid):
+            
+            # logging progress of loss function and parameters
+            logger.info(f"""Trial {idx+1}/{len(cur_loss_fn_hyperparam_grid)} for running loss function {loss_n}, current hyperparameters: {param_set}""")            
             
             # copy the param_set to avoid modifying the original dictionary
             orig_param_set = copy.deepcopy(param_set)
@@ -214,7 +224,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             
             # filter out additional params that are not needed by the loss function
             param_set = filter_kwargs(func=cur_loss_fn.__init__, kwargs=param_set)
-            #logger.debug(f"Filtered param set: {param_set} input into loss function {cur_loss_fn}")
+            
             # TODO: fix logging to find right level of detail to output and way for user to control the logging level
             # instantiate the loss function
             cur_loss = cur_loss_fn(**param_set) # instantiate the loss function - optionally with configs if provided            
@@ -236,6 +246,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
                 val_data_dict=val_dict,
                 test_data_dict=test_data,
                 minimization=minimize,
+                verbose=training_loop_verbose,
                 **tr_config)
             metrics['loss_name'] = loss_n            
             metrics['hyperparameters'] = str(orig_param_set)
@@ -247,7 +258,10 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             
     # -----------------TODO: CUSTOM LOSS FUNCTION: GET BY NAME PROVIDED IN custom_loss_inputs-----------------
     # TODO: check if names match up with custom loss functions - raise Error otherwise
-    for custom_loss_input in custom_loss_inputs:
+    for idx, custom_loss_input in enumerate(custom_loss_inputs):
+        
+        # logging progress of loss function and parameters
+        logger.info(f"""Trial {idx+1}/{len(custom_loss_inputs)} for custom loss functions, current loss function: {custom_loss_input['loss_name']}""")   
         
         cur_loss = custom_loss_input['loss']()
         
@@ -261,6 +275,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             val_data_dict=val_dict,
             test_data_dict=test_data,
             minimization=minimize,
+            verbose=training_loop_verbose,
             **tr_config)
         metrics['loss_name'] = custom_loss_input['loss_name']
         metrics['hyperparameters'] = None            
