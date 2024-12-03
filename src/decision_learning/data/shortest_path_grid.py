@@ -6,7 +6,7 @@ import torch
 # Create a logger
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # Check if any handlers exist
 if not logger.handlers:
