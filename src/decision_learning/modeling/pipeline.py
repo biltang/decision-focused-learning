@@ -65,7 +65,10 @@ def existing_lossfn_data_preprocess(loss_name: str, data_dict: dict):
     # simple check loss_name and modify data_dict accordingly to make sure inputs will be the argument names expected
     if loss_name == "MSE":
         data_dict['target'] = data_dict['true_cost'] # nn.MSE takes target argument as the true label to be predicted, which is the true cost 
-    
+    elif loss_name == "Cosine": # nn.CosineEmbeddingLoss takes input2 and target arguments
+        data_dict['input2'] = data_dict['true_cost'] # input2 is the true cost
+        data_dict['target'] = torch.ones(data_dict['true_cost'].shape[0]) # target is a tensor of ones
+        
     return data_dict 
 
 
@@ -267,11 +270,26 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         
         # TODO: add functionality to also search over a a grid of hyperparameters for custom loss functions
         pred_model = copy.deepcopy(predmodel)
-            
+        
+        # -----------------Initial data preprocessing for custom loss functions-----------------
+        # TODO: add functionality to preprocess data for custom loss functions
+        # for custom data, we still need to create train, val split
+        # split train/val data    
+        train_dict = {}
+        val_dict = {}
+        for key, value in custom_loss_input['data'].items():
+            train_data, val_data = train_test_split(value, **val_split_params)
+            train_dict[key] = train_data
+            val_dict[key] = val_data        
+        sol, obj = optmodel(val_dict['true_cost']) # get optimal solution and objective under true cost
+        val_dict['true_sol'] = sol
+        val_dict['true_obj'] = obj
+        # -----------------------------------------------------------------------------------------
+        
         metrics, trained_model = train(pred_model=pred_model,
             optmodel=optmodel,
             loss_fn=cur_loss,
-            train_data_dict=custom_loss_input['data'],
+            train_data_dict=train_dict,
             val_data_dict=val_dict,
             test_data_dict=test_data,
             minimization=minimize,
