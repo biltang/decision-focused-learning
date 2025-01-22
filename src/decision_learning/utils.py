@@ -1,4 +1,11 @@
 import inspect
+import os 
+import time
+from functools import wraps
+
+import logging 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def filter_kwargs(func: callable, kwargs: dict) -> dict:
@@ -15,3 +22,15 @@ def filter_kwargs(func: callable, kwargs: dict) -> dict:
     signature = inspect.signature(func) # get the signature of the function
     valid_args = {key: value for key, value in kwargs.items() if key in signature.parameters} # filter out invalid args
     return valid_args
+
+
+def log_runtime(func):
+    """Decorator to log the runtime of a function"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        logger.info(f"Function '{func.__name__}' took {end_time - start_time} seconds to run.")
+        return result
+    return wrapper

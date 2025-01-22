@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 from decision_learning.modeling.val_metrics import decision_regret
-from decision_learning.utils import filter_kwargs
+from decision_learning.utils import filter_kwargs, log_runtime
 
 
 # logging
@@ -81,6 +81,7 @@ def init_loss_data_pretraining(data_dict: dict,
     return dataset, dataloader
 
 
+@log_runtime
 def train(pred_model: nn.Module,
     optmodel: callable,
     loss_fn: nn.Module,
@@ -143,6 +144,7 @@ def train(pred_model: nn.Module,
     # set device related
     device = torch.device(device)
     pred_model.to(device)
+    logger.info(f"Training on device: {device}")
     
     # setup val metric - generally for decision-aware/focused, we care about the downstream optimization task, therefore
     # we can evaluate the decision solutions induced by the predicted cost. In this case we expect the val_metric to take

@@ -455,8 +455,107 @@ class perturbedFenchelYoungFunc(Function):
 # -------------------------------------------------------------------------
 # Cosine Surrogates
 # -------------------------------------------------------------------------
+class CosineSurrogateDotProdMSE(nn.Module):
+    """Implements a convexified surrogate loss function for cosine similarity loss by taking
+    a linear combination of the mean squared error (MSE) and the dot product of the predicted and true costs since
+    - MSE captures magnitude of the difference between predicted and true costs
+    - Dot product captures the direction/angle of the difference between predicted and true costs
+    """
+    
+    def __init__(self, alpha: float=1, reduction: str='mean', minimize: bool=True):
+        """
+        Args:
+            alpha (float, optional): Weighting parameter for how heavily to weigh MSE component of loss vs dot product. Defaults to 1.
+            reduction (str): the reduction to apply to the output. Defaults to 'mean'.
+            minimize (bool): whether the optimization problem is minimization or maximization. Defaults to True.
+        """
+        super(CosineSurrogateDotProdMSE, self).__init__()
+        self.alpha = alpha
+        self.reduction = reduction
+        self.minimize = minimize
+        self.mse_loss = nn.MSELoss(reduction=reduction) # use off-the-shelf MSE loss
+        
 
+    def forward(self, pred_cost: torch.tensor, true_cost: torch.tensor):
+        """Takes the predicted and true costs and computes the loss using the convexified cosine surrogate loss function
+        that is linear combination of MSE and dot product of predicted and true costs.
+        
+        Args:
+            pred_cost (torch.tensor): a batch of predicted values of the cost
+            true_cost (torch.tensor): a batch of true values of the cost        
+        """        
+        mse = self.mse_loss(pred_cost, true_cost)
+        
+        # ----- Compute dot product -----
+        dot_product = torch.sum(pred_cost * true_cost, dim=1)
+        if self.minimize:
+            dot_product = -dot_product # negate dot product for minimization
+            
+        # reduction
+        if self.reduction == "mean":
+            dot_product = torch.mean(dot_product)
+        elif self.reduction == "sum":
+            dot_product = torch.sum(dot_product)
+        elif self.reduction == "none":
+            dot_product = dot_product
+        else:
+            raise ValueError("No reduction '{}'.".format(self.reduction))
+        
+        loss = self.alpha * mse + dot_product  # compute final loss as linear combination of MSE and dot product        
+       
+        return loss
+    
+    
+class CosineSurrogateDotProdVecMag(nn.Module):
+    """Implements a convexified surrogate loss function for cosine similarity loss by taking
+    trying to maximize the dot product of the predicted and true costs while simultaneously minimizing the magnitude of the predicted cost
+    since this would incentivize the predicted cost to be in the same direction as the true cost without the predictions artificially
+    making the dot product higher by increasing the magnitude of the predicted cost.    
+    """
+    def __init__(self, alpha: float=1, reduction: str='mean', minimize: bool=True):
+        """
+        Args:
+            alpha (float, optional): Weight emphasis on minimizing magnitude of predicted vector (measured through self dot product). Defaults to 1.
+            reduction (str): the reduction to apply to the output. Defaults to 'mean'.
+            minimize (bool): whether the optimization problem is minimization or maximization. Defaults to True.
+        """
+        super(CosineSurrogateDotProdVecMag, self).__init__()
+        self.alpha = alpha
+        self.reduction = reduction
+        self.minimize = minimize
+        
 
+    def forward(self, pred_cost: torch.tensor, true_cost: torch.tensor):
+        """Computes the loss using a linear combination of two components:
+        1) self dot product - measures the magnitude of the predicted cost vector, trying to minimize it
+        2) dot product of predicted and true costs - measures the direction of the predicted cost vector, trying to maximize it
+
+        Args:
+            pred_cost (torch.tensor): a batch of predicted values of the cost
+            true_cost (torch.tensor): a batch of true values of the cost          
+        """    
+        dot_product_self = torch.sum(pred_cost * pred_cost, dim=1)
+        
+        # dot product of predicted and true costs - measure angle between predicted and true costs
+        dot_product_ang = torch.sum(pred_cost * true_cost, dim=1)
+        if self.minimize:
+            dot_product_ang = -dot_product_ang # negate dot product for minimization
+        
+        loss = self.alpha * dot_product_self + dot_product_ang  # compute final loss as linear combination of self dot product and dot product        
+        
+        # reduction
+        if self.reduction == "mean":
+            loss = torch.mean(loss)
+        elif self.reduction == "sum":
+            loss = torch.sum(loss)
+        elif self.reduction == "none":
+            loss = loss
+        else:
+            raise ValueError("No reduction '{}'.".format(self.reduction))
+       
+        return loss
+    
+        
 # -------------------------------------------------------------------------
 # Existing Loss Function Mapping
 # -------------------------------------------------------------------------
@@ -466,7 +565,9 @@ LOSS_FUNCTIONS = {
     'MSE': nn.MSELoss, # Mean Squared Error Loss
     'Cosine': nn.CosineEmbeddingLoss, # Cosine Embedding Loss
     'PG': PG_Loss, # PG loss
-    'FYL': perturbedFenchelYoung # perturbed Fenchel-Young loss
+    'FYL': perturbedFenchelYoung, # perturbed Fenchel-Young loss
+    'CosineSurrogateDotProdMSE': CosineSurrogateDotProdMSE, # Cosine Surrogate Dot Product MSE Loss
+    'CosineSurrogateDotProdVecMag': CosineSurrogateDotProdVecMag # Cosine Surrogate Dot Product Vector Magnitude Loss
 }
 
 def get_loss_function(name: str) -> callable:
