@@ -3,7 +3,7 @@ import torch
 from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
-
+from decision_learning.utils import handle_solver
 
 # -------------------------------------------------------------------------
 # SPO Plus (Smart Predict and Optimize Plus) Loss
@@ -27,25 +27,35 @@ class SPOPlus(nn.Module):
     Reference: <https://doi.org/10.1287/mnsc.2020.3922>
     """
 
-    def __init__(self, optmodel: callable, reduction: str = "mean", minimize: bool = True):
+    def __init__(self, 
+                optmodel: callable, 
+                reduction: str="mean", 
+                minimize: bool=True,
+                detach_tensor: bool=True,
+                solver_batch_solve: bool=False):
         """
         Args:
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
             reduction (str): the reduction to apply to the output
-            minimize (bool): whether the optimization problem is minimization or maximization                    
+            minimize (bool): whether the optimization problem is minimization or maximization
+            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
+            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver                    
         """
         super(SPOPlus, self).__init__()        
         self.spop = SPOPlusFunc()
         self.reduction = reduction
         self.minimize = minimize
         self.optmodel = optmodel
+        self.detach_tensor = detach_tensor
+        self.solver_batch_solve = solver_batch_solve
 
     def forward(self, 
             pred_cost: torch.tensor,             
             true_cost: torch.tensor, 
             true_sol: torch.tensor, 
-            true_obj: torch.tensor):
+            true_obj: torch.tensor,
+            solver_kwargs: dict = {}):
         """
         Forward pass
         
@@ -55,7 +65,16 @@ class SPOPlus(nn.Module):
             true_sol (torch.tensor): a batch of true optimal solutions
             true_obj (torch.tensor): a batch of true optimal objective values            
         """        
-        loss = self.spop.apply(pred_cost, true_cost, true_sol, true_obj, self.optmodel, self.minimize)
+        loss = self.spop.apply(pred_cost=pred_cost, 
+                            true_cost=true_cost, 
+                            true_sol=true_sol, 
+                            true_obj=true_obj, 
+                            optmodel=self.optmodel, 
+                            minimize=self.minimize, 
+                            detach_tensor=self.detach_tensor,
+                            solver_batch_solve=self.solver_batch_solve,
+                            solver_kwargs=solver_kwargs
+                        )
         
         # reduction
         if self.reduction == "mean":
@@ -81,7 +100,10 @@ class SPOPlusFunc(Function):
             true_sol: torch.tensor, 
             true_obj: torch.tensor,
             optmodel: callable,
-            minimize: bool = True):
+            minimize: bool = True,
+            detach_tensor: bool=True,
+            solver_batch_solve: bool=False,
+            solver_kwargs: dict = {}):
         """
         Forward pass for SPO+
 
@@ -94,7 +116,10 @@ class SPOPlusFunc(Function):
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
             minimize (bool): whether the optimization problem is minimization or maximization
-
+            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
+            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver 
+            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            
         Returns:
             torch.tensor: SPO+ loss
         """
@@ -105,7 +130,11 @@ class SPOPlusFunc(Function):
         c, w, z = true_cost, true_sol, true_obj
         
         # get batch's current optimal solution value and objective vvalue based on the predicted cost
-        w_hat, z_hat = optmodel(2*c_hat - c)
+        w_hat, z_hat = handle_solver(optmodel=optmodel, 
+                pred_cost=2*c_hat - c, 
+                solver_kwargs=solver_kwargs,
+                detach_tensor=detach_tensor,
+                solver_batch_solve=solver_batch_solve)                
                         
         # calculate loss
         # SPO loss = - min_{w} (2 * c_hat - c)^T w + 2 * c_hat^T w - z = - z_hat + 2 * c_hat^T w - z
@@ -150,7 +179,9 @@ class PG_Loss(nn.Module):
                 h: float=1, 
                 finite_diff_type: str='B', 
                 reduction: str="mean", 
-                minimize: bool=True):                 
+                minimize: bool=True,
+                detach_tensor: bool=True,
+                solver_batch_solve: bool=False):                 
         """
         Args:
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
@@ -162,6 +193,8 @@ class PG_Loss(nn.Module):
                                             - Forward Differencing/PGF ('F')
             reduction (str): the reduction to apply to the output
             minimize (bool): whether the optimization problem is minimization or maximization
+            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
+            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver    
         """
         # the finite difference step size h must be positive
         if h < 0:
@@ -177,9 +210,13 @@ class PG_Loss(nn.Module):
         self.reduction = reduction
         self.minimize = minimize
         self.optmodel = optmodel
-        
+        self.detach_tensor = detach_tensor
+        self.solver_batch_solve = solver_batch_solve
 
-    def forward(self, pred_cost: torch.tensor, true_cost: torch.tensor):
+    def forward(self, 
+            pred_cost: torch.tensor, 
+            true_cost: torch.tensor,
+            solver_kwargs: dict = {}):
         """
         Forward pass
         
@@ -192,7 +229,11 @@ class PG_Loss(nn.Module):
                             self.h, 
                             self.finite_diff_type, 
                             self.optmodel,
-                            self.minimize)
+                            self.minimize,
+                            detach_tensor=self.detach_tensor,
+                            solver_batch_solve=self.solver_batch_solve,
+                            solver_kwargs=solver_kwargs
+                        )
         
         # reduction
         if self.reduction == "mean":
@@ -218,7 +259,10 @@ class PGLossFunc(Function):
             h: float, 
             finite_diff_type: str,
             optmodel: callable,
-            minimize: bool = True):            
+            minimize: bool = True,
+            detach_tensor: bool=True,
+            solver_batch_solve: bool=False,
+            solver_kwargs: dict = {}):            
         """
         Forward pass for PG Loss
 
@@ -233,14 +277,18 @@ class PGLossFunc(Function):
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
             minimize (bool): whether the optimization problem is minimization or maximization
+            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
+            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver 
+            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            
             
         Returns:
             torch.tensor: PG loss
         """        
         # detach (stops gradient tracking since we will compute custom gradient) and move to cpu. Do this since
         # generally the optmodel is probably cpu based
-        cp = pred_cost.detach().to("cpu")
-        c = true_cost.detach().to("cpu")
+        cp = pred_cost 
+        c = true_cost 
 
         # for PG loss with zeroth order gradients, we need to perturb the predicted costs and solve
         # two optimization problems to approximate the gradient, where there is a cost plus and minus perturbation
@@ -259,8 +307,19 @@ class PGLossFunc(Function):
             step_size = 1 / h
 
         # solve optimization problems
-        sol_plus, obj_plus = optmodel(cp_plus) # Plus Perturbation Optimization Problem
-        sol_minus, obj_minus = optmodel(cp_minus) # Minus Perturbation Optimization Problem
+        # Plus Perturbation Optimization Problem
+        sol_plus, obj_plus =  handle_solver(optmodel=optmodel, 
+                pred_cost=cp_plus, 
+                solver_kwargs=solver_kwargs,
+                detach_tensor=detach_tensor,
+                solver_batch_solve=solver_batch_solve)    
+        
+        # Minus Perturbation Optimization Problem
+        sol_minus, obj_minus = handle_solver(optmodel=optmodel, 
+                pred_cost=cp_minus, 
+                solver_kwargs=solver_kwargs,
+                detach_tensor=detach_tensor,
+                solver_batch_solve=solver_batch_solve) 
         
         # calculate loss
         loss = (obj_plus - obj_minus) * step_size
@@ -309,7 +368,9 @@ class perturbedFenchelYoung(nn.Module):
                 sigma: float=1.0, 
                 seed: int=135,
                 reduction: str="mean", 
-                minimize: bool=True):
+                minimize: bool=True,
+                detach_tensor: bool=True,
+                solver_batch_solve: bool=False):
         """
         Args:
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
@@ -318,7 +379,9 @@ class perturbedFenchelYoung(nn.Module):
             sigma (float): the amplitude of the perturbation
             seed (int): random state seed, since we are sampling for perturbation
             reduction (str): the reduction to apply to the output
-            minimize (bool): whether the optimization problem is minimization or maximization            
+            minimize (bool): whether the optimization problem is minimization or maximization     
+            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
+            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver           
         """
         super(perturbedFenchelYoung, self).__init__()
         
@@ -329,9 +392,10 @@ class perturbedFenchelYoung(nn.Module):
         self.reduction = reduction
         self.minimize = minimize
         self.optmodel = optmodel        
-        
+        self.detach_tensor = detach_tensor
+        self.solver_batch_solve = solver_batch_solve
 
-    def forward(self, pred_cost: torch.tensor, true_sol: torch.tensor):
+    def forward(self, pred_cost: torch.tensor, true_sol: torch.tensor, solver_kwargs: dict = {}):
         """
         Forward pass
         
@@ -345,7 +409,11 @@ class perturbedFenchelYoung(nn.Module):
                             self.rnd,
                             self.optmodel,
                             self.sigma,
-                            self.minimize)
+                            self.minimize,
+                            detach_tensor=self.detach_tensor,
+                            solver_batch_solve=self.solver_batch_solve,
+                            solver_kwargs=solver_kwargs
+                        )
         # reduction
         if self.reduction == "mean":
             loss = torch.mean(loss)
@@ -371,7 +439,10 @@ class perturbedFenchelYoungFunc(Function):
             sampler: np.random.RandomState,
             optmodel: callable,
             sigma: float=1.0,                         
-            minimize: bool=True):        
+            minimize: bool=True,
+            detach_tensor: bool=True,
+            solver_batch_solve: bool=False,
+            solver_kwargs: dict = {}):        
         """
         Forward pass for perturbed Fenchel-Young loss
 
@@ -384,6 +455,9 @@ class perturbedFenchelYoungFunc(Function):
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
             minimize (bool): whether the optimization problem is minimization or maximization
+            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
+            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver 
+            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
 
         Returns:
             torch.tensor: solution expectations with perturbation
@@ -417,8 +491,12 @@ class perturbedFenchelYoungFunc(Function):
         
         # solve optimization problem to obtain optimal sol/obj val from perturbed costs (based on predicted costs), 
         # where now ptb_c[k, :] is k = i*j example that is the ith perturbed cost sample for the jth batch sample
-        ptb_sols, ptb_obj = optmodel(ptb_c)
-        
+        ptb_sols, ptb_obj = handle_solver(optmodel=optmodel, 
+                pred_cost=ptb_c, 
+                solver_kwargs=solver_kwargs,
+                detach_tensor=detach_tensor,
+                solver_batch_solve=solver_batch_solve)    
+                                        
         # reshape back to (n_samples, batch_size, sol_vector_dim) where ptb_sols[i, j, :] is the ith perturbed solution sample for the jth batch sample to get back to original data shape
         ptb_sols = ptb_sols.reshape(n_samples, -1, ptb_sols.shape[1])
         

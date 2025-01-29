@@ -96,7 +96,9 @@ def train(pred_model: nn.Module,
     lr: float=1e-2,
     scheduler_params: dict={'step_size': 10, 'gamma': 0.1},
     minimization: bool=True,
-    verbose: bool=True):    
+    verbose: bool=True,
+    detach_tensor: bool=True,
+    solver_batch_solve: bool=False):    
     """The components needed to train in a decision-aware/focused manner:
     1. prediction model - for predicting the coefficients/parameters of the optimization model [done]
     2. optimization model/solver - for downstream decision-making task  
@@ -129,6 +131,8 @@ def train(pred_model: nn.Module,
         scheduler_params (dict, optional): parameters for the learning rate scheduler. Defaults to {'step_size': 10, 'gamma': 0.1}.
         minimization (bool, optional): whether the optimization task is a minimization task. Defaults to True.
         verbose (bool, optional): whether to print training progress. Defaults to True.
+        detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays
+        solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver
     """
     # ------------------------- SETUP -------------------------
     # training setup - setup things needed for training loop like optimizer and scheduler
@@ -222,7 +226,9 @@ def train(pred_model: nn.Module,
         if test_data_dict is not None:
             test_regret = calc_test_regret(pred_model=pred_model,
                                 test_data_dict=test_data_dict,
-                                optmodel=optmodel)
+                                optmodel=optmodel,
+                                detach_tensor=detach_tensor,
+                                solver_batch_solve=solver_batch_solve)
         
         # ----------ADDITIONAL STEPS FOR OPTIMIZER/LOSS/MODEL ----------
         # MODIFY THIS SECTION IF YOU HAVE CUSTOM STEPS TO PERFORM EACH EPOCH LIKE SPECIAL PARAMETERS FOR THE LOSS FUNCTION
@@ -248,9 +254,11 @@ def train(pred_model: nn.Module,
 
 
 def calc_test_regret(pred_model: nn.Module, 
-                     test_data_dict: dict, 
-                     optmodel: callable, 
-                     minimize: bool=True):
+                    test_data_dict: dict, 
+                    optmodel: callable, 
+                    minimize: bool=True,
+                    detach_tensor: bool=True,
+                    solver_batch_solve: bool=False):
     """Wrapper function to calculate regret of a given pred_model on a test set test_data_dict with optimization model optmodel.
     Decision (normalized) regret is calculated by calling function decision_regret from decision_learning.modeling.val_metrics 
     and is the difference between the cost of the predicted solution and the cost of the optimal solution.
@@ -276,10 +284,16 @@ def calc_test_regret(pred_model: nn.Module,
     with torch.no_grad(): # context manager to disable gradient calculation
         X = torch.tensor(test_data_dict['X'], dtype=torch.float32)
         pred = pred_model(X)
+        
+        solver_kwargs = test_data_dict.get('solver_kwargs', {})
+        
         regret = decision_regret(pred,
-                                 true_cost=test_data_dict['true_cost'],
-                                 true_obj=test_data_dict['true_obj'],
-                                 optmodel=optmodel,
-                                 minimize=minimize)
+                                true_cost=test_data_dict['true_cost'],
+                                true_obj=test_data_dict['true_obj'],
+                                optmodel=optmodel,
+                                minimize=minimize,
+                                solver_kwargs=solver_kwargs,
+                                detach_tensor=detach_tensor,
+                                solver_batch_solve=solver_batch_solve)
         
     return regret
