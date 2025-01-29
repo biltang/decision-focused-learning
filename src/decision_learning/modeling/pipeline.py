@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from decision_learning.modeling.loss import get_loss_function
-from decision_learning.utils import filter_kwargs
+from decision_learning.utils import filter_kwargs, handle_solver
 from decision_learning.modeling.train import train
 
 # logging
@@ -108,7 +108,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             custom_loss_inputs: List[dict]=[],
             minimize: bool=True,
             training_configs: dict=None,
-            opt_configs: dict={'detach_tensor': True, 'solver_batch_solve': False},
+            handle_solver_func: callable=handle_solver,            
             save_models: bool=False,
             training_loop_verbose: bool=False):
     """High level function to run an experiment pipeline for decision-aware/focused learning.
@@ -155,10 +155,11 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             }. 
             Defaults to None.        
         
-        opt_configs (dict, optional): parameters to be passed into handle_solver function.
-            Default value: {'detach_tensor': True, 'solver_batch_solve': False}.
-                - detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
-                - solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver
+        handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
+                - optmodel (callable): optimization model
+                - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                
                     
         save_models (bool, optional): flag to save models or not. If we are searching over many hyperparameters/loss function/models, 
                                     may be impractical to store all of them since we may not be able to fit it in all in memory. 
@@ -241,12 +242,9 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             orig_param_set = copy.deepcopy(param_set)
             
             # additional params to add to param_set - optmodel, minimization, etc.
-            additional_params = {"optmodel": optmodel, "minimize": minimize}
+            additional_params = {"optmodel": optmodel, "handle_solver_func": handle_solver_func, "minimize": minimize}
             param_set.update(additional_params)
-            
-            # when instantiating loss functions, also pass in the opt_configs, which are the parameters to be passed into handle_solver function
-            param_set.update(opt_configs)
-            
+                                    
             # filter out additional params that are not needed by the loss function
             param_set = filter_kwargs(func=cur_loss_fn.__init__, kwargs=param_set)
             
@@ -273,6 +271,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
                 test_data_dict=test_data,
                 minimization=minimize,
                 verbose=training_loop_verbose,
+                handle_solver_func=handle_solver_func,
                 **tr_config)
             metrics['loss_name'] = loss_n            
             metrics['hyperparameters'] = str(orig_param_set)

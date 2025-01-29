@@ -10,8 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 from decision_learning.modeling.val_metrics import decision_regret
-from decision_learning.utils import filter_kwargs, log_runtime
-
+from decision_learning.utils import filter_kwargs, log_runtime, handle_solver
 
 # logging
 import logging
@@ -46,8 +45,10 @@ class GenericDataset(Dataset):
         - kwargs: dictionary containing input data
         """
         # Store all kwargs as attributes and convert to torch.tensor
+        self.solver_kwargs = kwargs.pop('solver_kwargs', {})
         self.data = {key: torch.as_tensor(value, dtype=torch.float32) if not isinstance(value, torch.Tensor) else value
                      for key, value in kwargs.items()}
+        
         # Determine the length of the dataset from one of the arguments
         self.length = len(next(iter(kwargs.values())))
 
@@ -57,6 +58,7 @@ class GenericDataset(Dataset):
     def __getitem__(self, idx):
         # Retrieve item for each key at the specified index
         item = {key: value[idx] for key, value in self.data.items()}
+        item['solver_kwargs'] = {key: value[idx] for key, value in self.solver_kwargs.items()}
         return item
     
     
@@ -97,8 +99,8 @@ def train(pred_model: nn.Module,
     scheduler_params: dict={'step_size': 10, 'gamma': 0.1},
     minimization: bool=True,
     verbose: bool=True,
-    detach_tensor: bool=True,
-    solver_batch_solve: bool=False):    
+    handle_solver_func: callable=handle_solver
+    ):    
     """The components needed to train in a decision-aware/focused manner:
     1. prediction model - for predicting the coefficients/parameters of the optimization model [done]
     2. optimization model/solver - for downstream decision-making task  
@@ -131,8 +133,11 @@ def train(pred_model: nn.Module,
         scheduler_params (dict, optional): parameters for the learning rate scheduler. Defaults to {'step_size': 10, 'gamma': 0.1}.
         minimization (bool, optional): whether the optimization task is a minimization task. Defaults to True.
         verbose (bool, optional): whether to print training progress. Defaults to True.
-        detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays
-        solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver
+        handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
+                - optmodel (callable): optimization model
+                - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                
     """
     # ------------------------- SETUP -------------------------
     # training setup - setup things needed for training loop like optimizer and scheduler
@@ -181,7 +186,8 @@ def train(pred_model: nn.Module,
             # move data to appropriate device. Assume that the collate_fn function in the dataset object will return a
             # dictionary with 'X' as the key for the features and remaining keys for other data required for specific loss fn
             for key in batch:
-                batch[key] = batch[key].to(device)
+                if not isinstance(batch[key], dict): # don't move solver_kwargs to device since it is not important for pred_model and not a tensor
+                    batch[key] = batch[key].to(device)
             
             # forward pass
             pred = pred_model(batch['X'])
@@ -207,19 +213,13 @@ def train(pred_model: nn.Module,
         # TODO: MODIFY VAL AND TEST REGRET CALC BEHAVIOR TO BE CONSISTENT
         
         # aggregate all predicted costs for entire validation set, then input into the val_metric function - assumption it all fits in memory
-        all_preds = []
-        with torch.no_grad():
-            for batch_idx, batch in enumerate(tqdm(val_loader, disable=not verbose, desc=f'Validation Loader: Epoch {epoch+1}/{num_epochs}')):
-                batch['X'] = batch['X'].to(device)                
-                pred = pred_model(batch['X'])
-                
-                # Append predictions to list
-                all_preds.append(pred)
-        all_preds = torch.cat(all_preds, dim=0)
-    
-        val_data_dict = filter_kwargs(val_metric, val_data_dict) # filter out only valid arguments for the val metric
-        # TODO: Do we need to detach val_data_dict and all_preds from cuda for general case of optmodel
-        val_loss = val_metric(all_preds, **val_data_dict)
+        val_regret = np.nan
+        val_regret = calc_test_regret(pred_model=pred_model,
+                                test_data_dict=val_data_dict,
+                                optmodel=optmodel,
+                                minimize=minimization,
+                                handle_solver_func=handle_solver_func
+                            )                      
         
         # Test regret       
         test_regret = np.nan
@@ -227,8 +227,9 @@ def train(pred_model: nn.Module,
             test_regret = calc_test_regret(pred_model=pred_model,
                                 test_data_dict=test_data_dict,
                                 optmodel=optmodel,
-                                detach_tensor=detach_tensor,
-                                solver_batch_solve=solver_batch_solve)
+                                minimize=minimization,
+                                handle_solver_func=handle_solver_func
+                            )
         
         # ----------ADDITIONAL STEPS FOR OPTIMIZER/LOSS/MODEL ----------
         # MODIFY THIS SECTION IF YOU HAVE CUSTOM STEPS TO PERFORM EACH EPOCH LIKE SPECIAL PARAMETERS FOR THE LOSS FUNCTION
@@ -241,12 +242,12 @@ def train(pred_model: nn.Module,
         # MODIFY THIS SECTION IF YOU WANT TO LOG ADDITIONAL METRICS
         cur_metric = {'epoch': epoch, 
                     'train_loss': np.mean(epoch_losses), 
-                    'val_metric': val_loss,
+                    'val_metric': val_regret,
                     'test_regret': test_regret}
         metrics.append(cur_metric)
         
         if verbose:
-            logger.info(f'epoch: {epoch+1}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_loss}, test_regret: {test_regret}')
+            logger.info(f'epoch: {epoch+1}, train_loss: {np.mean(epoch_losses)}, val_metric: {val_regret}, test_regret: {test_regret}')
 
         
     metrics = pd.DataFrame(metrics)
@@ -257,8 +258,8 @@ def calc_test_regret(pred_model: nn.Module,
                     test_data_dict: dict, 
                     optmodel: callable, 
                     minimize: bool=True,
-                    detach_tensor: bool=True,
-                    solver_batch_solve: bool=False):
+                    handle_solver_func: callable=handle_solver,                    
+                    ):
     """Wrapper function to calculate regret of a given pred_model on a test set test_data_dict with optimization model optmodel.
     Decision (normalized) regret is calculated by calling function decision_regret from decision_learning.modeling.val_metrics 
     and is the difference between the cost of the predicted solution and the cost of the optimal solution.
@@ -285,15 +286,13 @@ def calc_test_regret(pred_model: nn.Module,
         X = torch.tensor(test_data_dict['X'], dtype=torch.float32)
         pred = pred_model(X)
         
-        solver_kwargs = test_data_dict.get('solver_kwargs', {})
-        
+        solver_kwargs = test_data_dict.get('solver_kwargs', {})        
         regret = decision_regret(pred,
                                 true_cost=test_data_dict['true_cost'],
                                 true_obj=test_data_dict['true_obj'],
                                 optmodel=optmodel,
                                 minimize=minimize,
-                                solver_kwargs=solver_kwargs,
-                                detach_tensor=detach_tensor,
-                                solver_batch_solve=solver_batch_solve)
+                                handle_solver_func=handle_solver_func,                                
+                                solver_kwargs=solver_kwargs)
         
     return regret

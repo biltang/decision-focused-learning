@@ -8,8 +8,7 @@ def decision_regret(pred_cost: torch.tensor,
         true_obj: np.ndarray,
         optmodel: callable,
         minimize: bool=True,
-        detach_tensor: bool=True,
-        solver_batch_solve: bool=False,
+        handle_solver_func: callable=handle_solver,
         solver_kwargs: dict = {}):
     """To calculate the decision regret based on predicted coefficients/parameters for optimization model, we need following:
     1. predicted coefficients/parameters for optimization model    
@@ -22,17 +21,17 @@ def decision_regret(pred_cost: torch.tensor,
         true_cost (torch.tensor): true coefficients/parameters for optimization model
         true_obj (torch.tensor): true objective function value
         optmodel (callable): optimization model
-        detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
-        solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver 
+        handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
+                - optmodel (callable): optimization model
+                - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                - solver_kwargs (dict): a dictionary of additional arrays of data that the solver        
         solver_kwargs (dict): a dictionary of additional arrays of data that the solver
     """    
     # get batch's current optimal solution value and objective vvalue based on the predicted cost
-    w_hat, z_hat = handle_solver(optmodel=optmodel, 
+    w_hat, z_hat = handle_solver_func(optmodel=optmodel, 
                 pred_cost=pred_cost, 
-                solver_kwargs=solver_kwargs,
-                detach_tensor=detach_tensor,
-                solver_batch_solve=solver_batch_solve)     
-                
+                solver_kwargs=solver_kwargs) 
+    
     # To ensure consistency, convert everything into a pytorch tensor
     w_hat = torch.as_tensor(w_hat, dtype=torch.float32)
     z_hat = torch.as_tensor(z_hat, dtype=torch.float32)

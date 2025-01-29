@@ -2,6 +2,7 @@ import inspect
 import os 
 import time
 from functools import wraps
+import torch 
 
 import logging 
 logger = logging.getLogger(__name__)
@@ -41,14 +42,17 @@ def handle_solver(optmodel: callable,
     Returns:
         tuple: optimal solution value and objective value based on the predicted cost
     """
-    
     if detach_tensor:
         pred_cost = pred_cost.detach().cpu().numpy()
+        
+        for key in solver_kwargs:
+            if isinstance(solver_kwargs[key], torch.Tensor):
+                solver_kwargs[key] = solver_kwargs[key].detach().cpu().numpy()
 
-    # double check to ensure solver_kwargs only contains valid arguments for optmodel
+    # double check to ensure solver_kwargs only contains valid arguments for optmodel        
     solver_kwargs = filter_kwargs(optmodel, solver_kwargs)
-                
-    if solver_batch_solve:        
+    
+    if solver_batch_solve:                
         sol, obj = optmodel(pred_cost, **solver_kwargs)
         
     else:
