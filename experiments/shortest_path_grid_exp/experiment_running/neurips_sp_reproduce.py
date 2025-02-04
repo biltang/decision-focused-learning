@@ -177,20 +177,26 @@ def main():
                 plant_edges=plant_edge, # to plant edges or not
                 planted_good_pwl_params=planted_good_pwl_params, # cost function for good edges
                 planted_bad_pwl_params=planted_bad_pwl_params) # cost function for bad edges
-    
+        
+        # test solver kwargs
+        train_solver_kwargs = {'size': np.zeros(len(generated_data['cost'])) + 5}
+        test_solver_kwargs = {'size': np.zeros(len(generated_data_test['cost'])) + 5}
+        
         # ------------prediction model------------
         pred_model = LinearRegression(input_dim=generated_data['feat'].shape[1],
                         output_dim=generated_data['cost'].shape[1])
     
         # ------------loss function experiment pipeline------------
         
-        non-PG losses
+        # non-PG losses
         preimplement_loss_results, preimplement_loss_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
                 true_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
                 true_cost_test=generated_data_test['cost_true'], 
                 predmodel=pred_model,
                 optmodel=optmodel,
+                train_solver_kwargs=train_solver_kwargs,
+                test_solver_kwargs=test_solver_kwargs,
                 val_split_params={'test_size':200, 'random_state':42},
                 loss_names=['SPO+', 'MSE', 'FYL', 'Cosine'],                            
                 training_configs={'num_epochs':100,
@@ -205,6 +211,8 @@ def main():
                 true_cost_test=generated_data_test['cost_true'], 
                 predmodel=preimplement_loss_models['SPO+_{}'],
                 optmodel=optmodel,
+                train_solver_kwargs=train_solver_kwargs,
+                test_solver_kwargs=test_solver_kwargs,
                 val_split_params={'test_size':200, 'random_state':42},
                 loss_names=['PG'],
                 loss_configs={'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}},
@@ -220,6 +228,8 @@ def main():
                         true_cost_test=generated_data_test['cost_true'], 
                         predmodel=pred_model,
                         optmodel=optmodel,
+                        train_solver_kwargs=train_solver_kwargs,
+                        test_solver_kwargs=test_solver_kwargs,
                         val_split_params={'test_size':200, 'random_state':42},
                         loss_names=['CosineSurrogateDotProdVecMag','CosineSurrogateDotProdMSE'],
                         loss_configs={'CosineSurrogateDotProdVecMag': {'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]},
