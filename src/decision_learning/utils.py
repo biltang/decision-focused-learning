@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def handle_solver(optmodel: callable, 
-                pred_cost: torch.tensor, 
-                solver_kwargs: dict={},
+def handle_solver(pred_cost: torch.tensor,                   
+                optmodel: callable, 
+                solver_kwargs: dict={},                
                 detach_tensor: bool=True,
                 solver_batch_solve: bool=False):
     """Wrapper function to handle calling the optimization model solver. It will handle the following:
@@ -49,9 +49,8 @@ def handle_solver(optmodel: callable,
             if isinstance(solver_kwargs[key], torch.Tensor):
                 solver_kwargs[key] = solver_kwargs[key].detach().cpu().numpy()
 
-    # double check to ensure solver_kwargs only contains valid arguments for optmodel        
-    solver_kwargs = filter_kwargs(optmodel, solver_kwargs)
-    
+    # double check to ensure solver_kwargs only contains valid arguments for optmodel          
+    solver_kwargs = filter_kwargs(optmodel, solver_kwargs)    
     if solver_batch_solve:                
         sol, obj = optmodel(pred_cost, **solver_kwargs)
         

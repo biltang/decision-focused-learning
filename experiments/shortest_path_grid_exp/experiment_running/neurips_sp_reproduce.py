@@ -9,7 +9,7 @@ import pandas as pd
 
 import decision_learning.modeling.pipeline
 import decision_learning.data.shortest_path_grid
-
+from decision_learning.utils import handle_solver
 from decision_learning.modeling.models import LinearRegression
 from decision_learning.modeling.pipeline import lossfn_experiment_pipeline, lossfn_hyperparam_grid
 from decision_learning.data.shortest_path_grid import genData
@@ -19,6 +19,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 def shortest_path_solver(costs, size, sens = 1e-4):
+    if isinstance(size, np.ndarray):
+        size = int(size[0])   
+    elif isinstance(size, torch.Tensor):     
+        size = int(size[0].item())
+    
+    if type(size) != int:
+        size = int(size)
+        
     # Forward Pass
     starting_ind = 0
     starting_ind_c = 0
@@ -128,10 +136,10 @@ def main():
     plant_edge = True # to plant edges in shortest path experiment or not
     
     # ----------- optimization model -----------
-    optmodel = partial(shortest_path_solver,size=5)
+    optmodel = partial(handle_solver, optmodel=shortest_path_solver, detach_tensor=False, solver_batch_solve=True)
 
     # ----------- Results Setup -----------
-    save_file = 'shortest_path_neurips_exp.csv'
+    save_file = 'shortest_path_neurips_exp_opthandler_check.csv'
     
     # ----------------------- Sequentially loop through experiment trials -----------------------
     # experiment does not take that long (< 10 hours), so we can run it sequentially on HPC instead of parallel processing across multiple compute nodes
@@ -176,34 +184,34 @@ def main():
     
         # ------------loss function experiment pipeline------------
         
-        # non-PG losses
-        # preimplement_loss_results, preimplement_loss_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
-        #         true_cost_train=generated_data['cost'],
-        #         X_test=generated_data_test['feat'],
-        #         true_cost_test=generated_data_test['cost_true'], 
-        #         predmodel=pred_model,
-        #         optmodel=optmodel,
-        #         val_split_params={'test_size':200, 'random_state':42},
-        #         loss_names=['SPO+', 'MSE', 'FYL', 'Cosine'],                            
-        #         training_configs={'num_epochs':100,
-        #                          'dataloader_params': {'batch_size':200, 'shuffle':True}},
-        #         save_models=True                                                                                 
-        #         )
+        non-PG losses
+        preimplement_loss_results, preimplement_loss_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+                true_cost_train=generated_data['cost'],
+                X_test=generated_data_test['feat'],
+                true_cost_test=generated_data_test['cost_true'], 
+                predmodel=pred_model,
+                optmodel=optmodel,
+                val_split_params={'test_size':200, 'random_state':42},
+                loss_names=['SPO+', 'MSE', 'FYL', 'Cosine'],                            
+                training_configs={'num_epochs':100,
+                                 'dataloader_params': {'batch_size':32, 'shuffle':True}},
+                save_models=True                                                                                 
+                )
         
-        # # PG loss
-        # PG_init_results, PG_init_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
-        #         true_cost_train=generated_data['cost'],
-        #         X_test=generated_data_test['feat'],
-        #         true_cost_test=generated_data_test['cost_true'], 
-        #         predmodel=preimplement_loss_models['SPO+_{}'],
-        #         optmodel=optmodel,
-        #         val_split_params={'test_size':200, 'random_state':42},
-        #         loss_names=['PG'],
-        #         loss_configs={'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}},
-        #         training_configs={'num_epochs':100,
-        #                          'dataloader_params': {'batch_size':200, 'shuffle':True}},
-        #         save_models=False
-        #         )
+        # PG loss
+        PG_init_results, PG_init_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+                true_cost_train=generated_data['cost'],
+                X_test=generated_data_test['feat'],
+                true_cost_test=generated_data_test['cost_true'], 
+                predmodel=preimplement_loss_models['SPO+_{}'],
+                optmodel=optmodel,
+                val_split_params={'test_size':200, 'random_state':42},
+                loss_names=['PG'],
+                loss_configs={'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}},
+                training_configs={'num_epochs':100,
+                                 'dataloader_params': {'batch_size':32, 'shuffle':True}},
+                save_models=False
+                )
 
         # Cosine Surrogate Losses        
         cos_surr_results, cos_surr_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
@@ -217,7 +225,7 @@ def main():
                         loss_configs={'CosineSurrogateDotProdVecMag': {'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]},
                                       'CosineSurrogateDotProdMSE': {'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]}},
                         training_configs={'num_epochs':100,
-                                         'dataloader_params': {'batch_size':200, 'shuffle':True}},
+                                         'dataloader_params': {'batch_size':32, 'shuffle':True}},
                         save_models=False
                         )
 

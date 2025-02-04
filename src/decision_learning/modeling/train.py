@@ -99,7 +99,6 @@ def train(pred_model: nn.Module,
     scheduler_params: dict={'step_size': 10, 'gamma': 0.1},
     minimization: bool=True,
     verbose: bool=True,
-    handle_solver_func: callable=handle_solver
     ):    
     """The components needed to train in a decision-aware/focused manner:
     1. prediction model - for predicting the coefficients/parameters of the optimization model [done]
@@ -128,16 +127,20 @@ def train(pred_model: nn.Module,
         val_metric (callable, optional): metric to evaluate the model during training. Defaults to decision_regret.
         device (str, optional): device to use for training. Defaults to 'cpu'.
         num_epochs (int, optional): number of epochs to train the model. Defaults to 10.
-        optimizer (torch.optim.Optimizer, optional): optimizer to use for training. Defaults to None.
+        optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
+                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
+                It must take in:                                 
+                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                It must also:
+                    - detach tensors if necessary
+                    - loop or batch data solve 
+                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
+                these are all taken care of.        
         lr (float, optional): learning rate. Defaults to 1e-2.
         scheduler_params (dict, optional): parameters for the learning rate scheduler. Defaults to {'step_size': 10, 'gamma': 0.1}.
         minimization (bool, optional): whether the optimization task is a minimization task. Defaults to True.
-        verbose (bool, optional): whether to print training progress. Defaults to True.
-        handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
-                - optmodel (callable): optimization model
-                - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
-                
+        verbose (bool, optional): whether to print training progress. Defaults to True.                        
     """
     # ------------------------- SETUP -------------------------
     # training setup - setup things needed for training loop like optimizer and scheduler
@@ -217,8 +220,7 @@ def train(pred_model: nn.Module,
         val_regret = calc_test_regret(pred_model=pred_model,
                                 test_data_dict=val_data_dict,
                                 optmodel=optmodel,
-                                minimize=minimization,
-                                handle_solver_func=handle_solver_func
+                                minimize=minimization                                
                             )                      
         
         # Test regret       
@@ -227,8 +229,7 @@ def train(pred_model: nn.Module,
             test_regret = calc_test_regret(pred_model=pred_model,
                                 test_data_dict=test_data_dict,
                                 optmodel=optmodel,
-                                minimize=minimization,
-                                handle_solver_func=handle_solver_func
+                                minimize=minimization                                
                             )
         
         # ----------ADDITIONAL STEPS FOR OPTIMIZER/LOSS/MODEL ----------
@@ -257,8 +258,7 @@ def train(pred_model: nn.Module,
 def calc_test_regret(pred_model: nn.Module, 
                     test_data_dict: dict, 
                     optmodel: callable, 
-                    minimize: bool=True,
-                    handle_solver_func: callable=handle_solver,                    
+                    minimize: bool=True,                            
                     ):
     """Wrapper function to calculate regret of a given pred_model on a test set test_data_dict with optimization model optmodel.
     Decision (normalized) regret is calculated by calling function decision_regret from decision_learning.modeling.val_metrics 
@@ -275,7 +275,16 @@ def calc_test_regret(pred_model: nn.Module,
     Args:
         pred_model (nn.Module): prediction model for predicting the coefficients/parameters of the optimization model
         test_data_dict (dict): dictionary containing input data for the test set. It must contain 'X', 'true_cost', and 'true_obj' keys.
-        optmodel (callable): optimization model/solver for downstream decision-making task
+        optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
+                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
+                It must take in:                                 
+                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                It must also:
+                    - detach tensors if necessary
+                    - loop or batch data solve 
+                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
+                these are all taken care of.
         minimize (bool, optional): whether the optimization task is a minimization task. Defaults to True.
 
     Returns:
@@ -286,13 +295,12 @@ def calc_test_regret(pred_model: nn.Module,
         X = torch.tensor(test_data_dict['X'], dtype=torch.float32)
         pred = pred_model(X)
         
-        solver_kwargs = test_data_dict.get('solver_kwargs', {})        
+        solver_kwargs = test_data_dict.get('solver_kwargs', {})      
         regret = decision_regret(pred,
                                 true_cost=test_data_dict['true_cost'],
                                 true_obj=test_data_dict['true_obj'],
                                 optmodel=optmodel,
-                                minimize=minimize,
-                                handle_solver_func=handle_solver_func,                                
+                                minimize=minimize,                                
                                 solver_kwargs=solver_kwargs)
         
     return regret

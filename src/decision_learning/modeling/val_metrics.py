@@ -7,8 +7,7 @@ def decision_regret(pred_cost: torch.tensor,
         true_cost: np.ndarray, 
         true_obj: np.ndarray,
         optmodel: callable,
-        minimize: bool=True,
-        handle_solver_func: callable=handle_solver,
+        minimize: bool=True,        
         solver_kwargs: dict = {}):
     """To calculate the decision regret based on predicted coefficients/parameters for optimization model, we need following:
     1. predicted coefficients/parameters for optimization model    
@@ -20,17 +19,20 @@ def decision_regret(pred_cost: torch.tensor,
         pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
         true_cost (torch.tensor): true coefficients/parameters for optimization model
         true_obj (torch.tensor): true objective function value
-        optmodel (callable): optimization model
-        handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
-                - optmodel (callable): optimization model
-                - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                - solver_kwargs (dict): a dictionary of additional arrays of data that the solver        
+        optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
+                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
+                It must take in:                                 
+                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                It must also:
+                    - detach tensors if necessary
+                    - loop or batch data solve 
+                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
+                these are all taken care of.        
         solver_kwargs (dict): a dictionary of additional arrays of data that the solver
     """    
     # get batch's current optimal solution value and objective vvalue based on the predicted cost
-    w_hat, z_hat = handle_solver_func(optmodel=optmodel, 
-                pred_cost=pred_cost, 
-                solver_kwargs=solver_kwargs) 
+    w_hat, z_hat = optmodel(pred_cost, solver_kwargs=solver_kwargs) 
     
     # To ensure consistency, convert everything into a pytorch tensor
     w_hat = torch.as_tensor(w_hat, dtype=torch.float32)
