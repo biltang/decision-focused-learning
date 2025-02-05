@@ -6,6 +6,7 @@ import os
 from torch import nn
 import torch
 import pandas as pd
+import numpy as np
 
 import decision_learning.modeling.pipeline
 import decision_learning.data.shortest_path_grid
@@ -241,7 +242,7 @@ def main():
 
 
         # store current results
-        combined_results = cos_surr_results #pd.concat([preimplement_loss_results, PG_init_results], ignore_index=True)
+        combined_results = pd.concat([preimplement_loss_results, PG_init_results, cos_surr_results], ignore_index=True)
         combined_results['n'] = num_data
         combined_results['eps_type'] = ep_type
         combined_results['trial'] = trial
